@@ -6,6 +6,7 @@ os.environ["YOLO_CONFIG_DIR"] = "/tmp"
 import re
 import cv2
 import numpy as np
+import uvicorn
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from gtts import gTTS
@@ -63,7 +64,6 @@ def get_voice_base64(text: str, lang='en') -> str:
     if not text: 
         return ""
     
-    # Dọn dẹp cache nếu quá đầy để tránh tràn RAM
     if len(AUDIO_CACHE) > MAX_CACHE_SIZE:
         AUDIO_CACHE.clear()
         
@@ -181,6 +181,7 @@ def assess_desk(
         "processed_image": cv2_to_base64(annotated_bgr),
         "audio_base64": f"data:audio/mp3;base64,{audio_base64_str}" if audio_base64_str else ""
     }
+
 @app.post("/api/analyze_frame")
 def analyze_frame(data: ImageData):
     try:
@@ -271,5 +272,7 @@ def analyze_frame(data: ImageData):
         "shoulder_y": current_shoulder_y,
         "is_success": is_success
     }
+
 if __name__ == "__main__":
-    uvicorn.run("app:app", host="0.0.0.0", port=7860, reload=True)
+    port = int(os.environ.get("PORT", 7860))
+    uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
