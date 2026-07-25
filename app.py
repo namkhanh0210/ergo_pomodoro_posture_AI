@@ -2,6 +2,7 @@ import base64
 import io
 import math
 import os
+os.environ["YOLO_CONFIG_DIR"] = "/tmp"
 import re
 import cv2
 import numpy as np
