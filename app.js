@@ -194,7 +194,6 @@ async function sendImageToAPI(base64Image, isCalibration) {
         return null;
     }
 }
-}
 
 if (btnCalibrate) {
     btnCalibrate.addEventListener('click', async () => {
