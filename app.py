@@ -272,4 +272,4 @@ def analyze_frame(data: ImageData):
         "is_success": is_success
     }
 if __name__ == "__main__":
-  uvicorn.main("app:app", host="0.0.0.0", port=7860, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=7860, reload=True)
