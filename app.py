@@ -12,8 +12,6 @@ from gtts import gTTS
 from pydantic import BaseModel
 from ultralytics import YOLO
 from PIL import Image
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 
 try:
     from google import genai
@@ -183,7 +181,7 @@ def assess_desk(
         "processed_image": cv2_to_base64(annotated_bgr),
         "audio_base64": f"data:audio/mp3;base64,{audio_base64_str}" if audio_base64_str else ""
     }
- 
+@app.post("/api/analyze_frame")
 def analyze_frame(data: ImageData):
     try:
         encoded_data = data.image_base64.split(',')[1] if ',' in data.image_base64 else data.image_base64
@@ -273,9 +271,5 @@ def analyze_frame(data: ImageData):
         "shoulder_y": current_shoulder_y,
         "is_success": is_success
     }
-app.mount("/static", StaticFiles(directory="static"), name="static")
-@app.get("/")
-def serve_frontend():
-    return FileResponse("static/index.html")
 if __name__ == "__main__":
   uvicorn.main("app:app", host="0.0.0.0", port=7860, reload=True)
