@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html class="dark" lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta content="width=device-width, initial-scale=1.0" name="viewport">
+    <title>ErgoAI - Vigilant Guardian</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    <script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    "colors": {
+                        "surface-container-highest": "#273647",
+                        "primary": "#4edea3",
+                        "on-primary": "#003824",
+                        "on-primary-fixed": "#002113",
+                        "surface-container": "#122131",
+                        "secondary-container": "#3f465c",
+                        "tertiary-fixed": "#ffddb8",
+                        "secondary-fixed-dim": "#bec6e0",
+                        "surface-container-low": "#0d1c2d",
+                        "inverse-primary": "#006c49",
+                        "on-tertiary-fixed": "#2a1700",
+                        "on-tertiary": "#472a00",
+                        "on-error-container": "#ffdad6",
+                        "outline-variant": "#3c4a42",
+                        "surface-variant": "#273647",
+                        "secondary": "#bec6e0",
+                        "on-surface": "#d4e4fa",
+                        "tertiary": "#ffb95f",
+                        "surface-bright": "#2c3a4c",
+                        "primary-fixed": "#6ffbbe",
+                        "on-secondary-fixed": "#131b2e",
+                        "on-secondary": "#283044",
+                        "tertiary-fixed-dim": "#ffb95f",
+                        "primary-container": "#10b981",
+                        "surface-container-high": "#1c2b3c",
+                        "on-primary-fixed-variant": "#005236",
+                        "secondary-fixed": "#dae2fd",
+                        "on-surface-variant": "#bbcabf",
+                        "surface": "#051424",
+                        "on-error": "#690005",
+                        "surface-container-lowest": "#010f1f",
+                        "on-secondary-container": "#adb4ce",
+                        "background": "#051424",
+                        "error": "#ef4444",
+                        "on-secondary-fixed-variant": "#3f465c",
+                        "surface-tint": "#4edea3",
+                        "outline": "#86948a",
+                        "error-container": "#93000a",
+                        "on-tertiary-container": "#523200",
+                        "on-background": "#d4e4fa",
+                        "on-tertiary-fixed-variant": "#653e00",
+                        "surface-dim": "#051424",
+                        "primary-fixed-dim": "#4edea3",
+                        "inverse-on-surface": "#233143",
+                        "on-primary-container": "#00422b",
+                        "inverse-surface": "#d4e4fa",
+                        "tertiary-container": "#e29100"
+                    },
+                    "borderRadius": {
+                        "DEFAULT": "0.25rem",
+                        "lg": "0.5rem",
+                        "xl": "0.75rem",
+                        "2xl": "1rem",
+                        "full": "9999px"
+                    },
+                    "spacing": {
+                        "stack-md": "16px",
+                        "gutter": "16px",
+                        "container-padding": "24px",
+                        "base": "4px",
+                        "stack-sm": "8px",
+                        "stack-lg": "32px"
+                    },
+                    "fontFamily": {
+                        "label-caps": ["Hanken Grotesk"],
+                        "headline-lg-mobile": ["Hanken Grotesk"],
+                        "status-label": ["Hanken Grotesk"],
+                        "headline-lg": ["Hanken Grotesk"],
+                        "display": ["Hanken Grotesk"],
+                        "title-md": ["Hanken Grotesk"],
+                        "body-lg": ["Hanken Grotesk"],
+                        "body-md": ["Hanken Grotesk"]
+                    },
+                    "fontSize": {
+                        "label-caps": ["12px", { "lineHeight": "16px", "letterSpacing": "0.1em", "fontWeight": "700" }],
+                        "headline-lg-mobile": ["24px", { "lineHeight": "32px", "fontWeight": "600" }],
+                        "status-label": ["14px", { "lineHeight": "20px", "fontWeight": "600" }],
+                        "headline-lg": ["32px", { "lineHeight": "40px", "letterSpacing": "-0.01em", "fontWeight": "600" }],
+                        "display": ["48px", { "lineHeight": "56px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+                        "title-md": ["20px", { "lineHeight": "28px", "fontWeight": "600" }],
+                        "body-lg": ["18px", { "lineHeight": "28px", "fontWeight": "400" }],
+                        "body-md": ["16px", { "lineHeight": "24px", "fontWeight": "400" }]
+                    }
+                }
+            }
+        }
+    </script>
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .glass-card {
+                @apply bg-[#1e293b]/50 backdrop-blur-md border-t border-white/10 rounded-2xl shadow-xl;
+            }
+            .status-badge-positive {
+                @apply bg-primary-container/10 text-primary-container font-bold px-3 py-1 rounded-full text-xs tracking-wider uppercase inline-flex items-center;
+            }
+            .status-badge-warning {
+                @apply bg-[#f59e0b]/10 text-[#f59e0b] font-bold px-3 py-1 rounded-full text-xs tracking-wider uppercase inline-flex items-center;
+            }
+            .status-badge-error {
+                @apply bg-error/10 text-error font-bold px-3 py-1 rounded-full text-xs tracking-wider uppercase inline-flex items-center;
+            }
+            .btn-primary {
+                @apply bg-primary-container text-[#0f172a] font-bold px-6 py-3 rounded-xl hover:bg-primary-container/90 transition-all uppercase tracking-widest text-sm cursor-pointer;
+            }
+            .btn-secondary {
+                @apply border border-white/20 text-white font-bold px-6 py-3 rounded-xl hover:bg-white/5 transition-all uppercase tracking-widest text-sm cursor-pointer;
+            }
+            .btn-ghost {
+                @apply text-on-surface-variant font-bold px-4 py-2 rounded-xl hover:text-white transition-all uppercase tracking-widest text-xs cursor-pointer;
+            }
+        }
+    </style>
+</head>
+<body class="bg-[#0f172a] text-on-surface min-h-screen font-body-md overflow-x-hidden selection:bg-primary-container/30">
+
+<!-- TopNavBar -->
+<nav class="fixed top-0 w-full z-50 flex justify-between items-center px-container-padding h-16 bg-surface/50 backdrop-blur-md border-b border-white/10">
+    <div class="flex items-center gap-4">
+        <span class="font-display text-title-md font-bold text-primary">ERGOAI</span>
+        <span class="status-badge-positive !bg-transparent !border !border-primary-container/30">v1.0 MVP</span>
+    </div>
+    <div class="hidden md:flex items-center gap-8">
+        <a class="font-label-caps text-label-caps uppercase tracking-widest text-primary font-bold border-b-2 border-primary pb-1" href="#" onclick="showStep(1); return false;">WORKFLOW</a>
+    </div>
+    <div class="flex items-center gap-4">
+        <span class="status-badge-positive hidden lg:inline-flex">AI VISION READY</span>
+        <!-- Đã xóa chữ PROFILE -->
+    </div>
+</nav>
+
+<!-- SideNavBar -->
+<aside class="hidden lg:flex flex-col fixed left-0 top-0 h-full p-gutter w-64 bg-surface-container-low/80 backdrop-blur-xl border-r border-white/10 pt-24">
+    <div class="mb-12 px-4">
+        <h1 class="font-display text-title-md font-bold text-primary">ERGOAI</h1>
+        <p class="font-label-caps text-label-caps text-on-surface-variant tracking-widest mt-1">VIGILANT GUARDIAN</p>
+    </div>
+    <nav class="flex flex-col gap-2">
+        <a id="nav_step1" class="px-4 py-3 text-primary font-bold bg-primary/10 rounded-xl font-label-caps text-label-caps translate-x-1 transition-transform block" href="#" onclick="showStep(1); return false;">SETUP WORKSPACE</a>
+        <a id="nav_step2" class="px-4 py-3 text-on-surface-variant/50 font-medium cursor-not-allowed transition-all rounded-xl font-label-caps text-label-caps block" href="#" onclick="trySwitchStep2(); return false;">MONITOR &amp; FOCUS 🔒</a>
+    </nav>
+</aside>
+
+<main class="pt-24 pb-12 px-container-padding lg:pl-[calc(256px+32px)] max-w-[1920px] mx-auto min-h-screen space-y-12">
+
+    <!-- File Input Ẩn -->
+    <input type="file" id="desk_file_input" accept="image/*" class="hidden" />
+
+    <!-- Step 1: Workspace Setup -->
+    <section class="space-y-8" id="desk_assessment_section">
+        <div class="flex flex-col md:flex-row md:items-end justify-between gap-4">
+            <div>
+                <h2 class="font-display text-headline-lg text-white mb-2 uppercase tracking-tight">Step 1: Workspace Setup &amp; Ergonomic Check</h2>
+                <p class="font-body-lg text-on-surface-variant max-w-2xl">Ensure your physical environment is optimized for long-term health before entering focus mode.</p>
+            </div>
+            <div class="flex gap-3">
+                <div class="flex flex-col gap-1">
+                    <label class="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">User Height (CM)</label>
+                    <input type="number" placeholder="175" class="bg-surface-container-low/30 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-primary/50 w-24">
+                </div>
+                <button onclick="document.getElementById('desk_file_input').click()" class="btn-secondary text-xs px-4">Upload Desk Photo</button>
+                <button onclick="goToMainWorkspace()" class="btn-ghost">Skip to Focus Workspace</button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+            <div class="lg:col-span-7">
+                <div class="glass-card overflow-hidden border border-white/5 aspect-video relative bg-black/40 group flex items-center justify-center">
+                    <img id="desk_result_img" class="absolute inset-0 w-full h-full object-contain hidden z-10" alt="Desk Preview" />
+                    
+                    <div id="desk_placeholder" class="inset-0 flex flex-col items-center justify-center text-center p-6">
+                        <span class="material-symbols-outlined text-4xl text-on-surface-variant mb-2">add_a_photo</span>
+                        <span class="text-on-surface-variant font-label-caps tracking-widest opacity-50 uppercase">Upload photo to analyze your desk</span>
+                    </div>
+                    
+                    <div class="absolute top-4 left-4 z-20">
+                        <span class="bg-black/60 backdrop-blur-md px-3 py-1 rounded font-label-caps text-[10px] text-white border border-white/10 uppercase">Frame: Desk_Analysis_01</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="lg:col-span-5 flex flex-col gap-6">
+                <div class="glass-card p-8 flex flex-col items-center justify-center text-center h-full">
+                    <p class="font-label-caps text-on-surface-variant tracking-widest mb-2 uppercase">Current Workspace Score</p>
+                    <div class="font-display text-7xl font-bold text-primary mb-4" id="desk_score_display">--<span class="text-2xl text-on-surface-variant font-normal">/100</span></div>
+                    <div class="status-badge-warning mb-6" id="desk_status_badge">WAITING FOR PHOTO</div>
+                    <div class="w-full space-y-3 text-left">
+                        <div class="p-4 bg-surface-container/50 rounded-xl border border-white/5">
+                            <p class="font-label-caps text-[10px] text-primary tracking-widest uppercase mb-1">Gemini AI Insight</p>
+                            <div id="desk_feedback_text" class="text-sm text-on-surface-variant leading-relaxed">
+                                Please upload a photo of your desk setup to receive an ergonomic evaluation.
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bảng Recheck & Adjust: Mặc định ẨN (hidden), chỉ hiện khi đã Analyze xong -->
+        <div id="recheck_banner" class="glass-card p-8 border-l-4 border-amber-500/50 bg-amber-500/5 hidden">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-6">
+                <div class="flex-1">
+                    <h3 class="font-title-md text-white mb-1 uppercase">Score below 100. Would you like to adjust and re-check?</h3>
+                    <p class="text-on-surface-variant text-sm">Perfect ergonomics reduces fatigue by up to 30% during deep work sessions.</p>
+                </div>
+                <div class="flex gap-4">
+                    <button id="btn_analyze_desk_frame" class="btn-secondary border-amber-500/30 text-amber-500 hover:bg-amber-500/10">Adjust &amp; Re-check</button>
+                    <button onclick="goToMainWorkspace()" class="btn-primary">Proceed to Focus Mode</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Step 2: Unified Monitor & Focus Workspace -->
+    <section class="space-y-8 hidden" id="main_workspace_section">
+        <div class="flex items-end justify-between">
+            <div>
+                <h2 class="font-display text-headline-lg text-white mb-2 uppercase tracking-tight">Active Focus Session</h2>
+                <p class="font-body-lg text-on-surface-variant">Real-time biomechanical monitoring paired with deep work orchestration.</p>
+            </div>
+            <div class="hidden lg:block">
+                <span class="status-badge-positive">System Fully Aligned</span>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 xl:grid-cols-12 gap-8">
+            <div class="xl:col-span-12 glass-card overflow-hidden">
+                <div class="grid grid-cols-1 lg:grid-cols-2">
+                    
+                    <!-- Left: Real-time Posture Monitor -->
+                    <div class="p-8 border-r border-white/5 flex flex-col gap-6">
+                        <div class="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-white/10" id="webcam_container">
+                            <video id="webcam" autoplay muted playsinline class="absolute inset-0 w-full h-full object-cover opacity-60 transform -scale-x-100"></video>
+                            <canvas id="output_canvas" class="absolute inset-0 w-full h-full transform -scale-x-100"></canvas>
+                            <div class="absolute top-4 left-4 flex gap-2">
+                                <span class="bg-black/60 backdrop-blur-md text-white font-label-caps text-[10px] px-3 py-1.5 rounded-lg border border-white/20 uppercase">Camera Mirror On</span>
+                            </div>
+                            <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end">
+                                <div class="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-white/20 flex gap-8">
+                                    <div>
+                                        <p class="font-label-caps text-on-surface-variant mb-1 text-[10px] uppercase">Eye Distance</p>
+                                        <p class="font-title-md text-primary font-bold" id="metric_eye">0 px</p>
+                                    </div>
+                                    <div class="w-px h-8 bg-white/10"></div>
+                                    <div>
+                                        <p class="font-label-caps text-on-surface-variant mb-1 text-[10px] uppercase">Shoulder Align</p>
+                                        <p class="font-title-md text-primary font-bold" id="metric_shoulder">0 px</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-col md:flex-row justify-between items-center bg-surface-container/50 p-5 rounded-2xl border border-white/5 gap-4">
+                            <div class="flex flex-col">
+                                <span class="font-label-caps text-[10px] text-on-surface-variant tracking-widest uppercase">Calibration Status</span>
+                                <span id="posture_status" class="font-bold text-primary tracking-wide">SYSTEM READY</span>
+                            </div>
+                            <button id="btn_calibrate" class="btn-secondary py-2.5 px-6 text-xs w-full md:w-auto">Calibrate Standard Posture</button>
+                        </div>
+
+                        <div class="mt-auto overflow-hidden rounded-2xl border border-white/10 aspect-[21/9] bg-surface-container-low/30">
+                            <img alt="Minimalist health tech abstract art" class="w-full h-full object-cover opacity-80" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAJWDghtY4SGrBAtEos8Z7oSnleAYRAMjozDrtt1Mlikghd0ORtD0q_mkdbEc42drkG6jun2ud6FK3fl-wo9pxhWM8IUDmwDigFtCx0l6WqH1udU3u8lgk2rcIXd9brX6dLP41uoCOAV7ZOCTTnVRb0Jjbb-j0s-Z7YVZfN_Fy5DJVxBppJZ5k7C9eodWrMahmILwhxBfoDKQAtMOZ6LLGytjAEJizIe08jvICGZ9PMNxx3DlqRtugjD3SGWZsP0Po_LXj6XKfbhNoO">
+                        </div>
+                    </div>
+
+                    <!-- Right: Pomodoro Focus Engine -->
+                    <div class="p-8 flex flex-col bg-surface-container-low/20">
+                        <div class="flex-grow flex flex-col items-center justify-center py-8">
+                            <p class="font-label-caps text-on-surface-variant tracking-widest uppercase mb-4 text-center">Focus Session</p>
+                            <div id="timer_display" class="font-display text-[100px] leading-none font-bold text-white tracking-tighter mb-6 drop-shadow-[0_0_40px_rgba(16,185,129,0.15)]">
+                                25:00
+                            </div>
+                            
+                            <div class="w-full max-w-[240px] mb-12">
+                                <div class="h-1 bg-surface-container-highest w-full rounded-full overflow-hidden mb-3">
+                                    <div id="timer_progress" class="h-full bg-primary w-0 rounded-full transition-all duration-1000"></div>
+                                </div>
+                                <div class="flex justify-between font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">
+                                    <span>0% Start</span>
+                                    <span class="text-primary">100% Target</span>
+                                </div>
+                            </div>
+
+                            <div class="flex flex-col gap-4 w-full max-w-[280px]">
+                                <button id="btn_timer_start" class="btn-primary w-full py-5 text-base shadow-[0_0_30px_rgba(16,185,129,0.2)]">Start Session</button>
+                                <div class="flex gap-4">
+                                    <button id="btn_timer_pause" class="btn-secondary flex-1 py-3 text-xs border-white/10">Pause</button>
+                                    <button id="btn_timer_reset" class="btn-secondary flex-1 py-3 text-xs border-white/10 text-on-surface-variant hover:text-white">Reset</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-auto pt-8 border-t border-white/5">
+                            <div class="flex flex-col items-center gap-4">
+                                <p class="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-widest">Daily Progress</p>
+                                <div class="flex gap-2">
+                                    <div class="w-2 h-2 rounded-full bg-primary"></div>
+                                    <div class="w-2 h-2 rounded-full bg-primary"></div>
+                                    <div class="w-2 h-2 rounded-full bg-primary"></div>
+                                    <div class="w-2 h-2 rounded-full bg-surface-container-highest"></div>
+                                </div>
+                                <span id="session_tracker" class="text-[10px] font-label-caps text-on-surface-variant uppercase">3 of 4 Sessions Completed</span>
+                            </div>
+                        </div>
+                    </div>
+
+                </div>
+            </div>
+        </div>
+    </section>
+
+</main>
+
+<footer class="mt-12 py-12 border-t border-white/5 bg-surface-container-low/30">
+    <div class="max-w-[1920px] mx-auto px-container-padding lg:pl-[calc(256px+32px)] flex flex-col md:flex-row justify-between items-center gap-6">
+        <div class="flex flex-col gap-1">
+            <span class="font-display font-bold text-white uppercase tracking-wider">ErgoAI Vigilant Guardian</span>
+            <span class="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-[0.2em]">Privacy-First Stateless Biometric Engine</span>
+        </div>
+        <div class="flex gap-8 text-[10px] font-label-caps text-on-surface-variant uppercase tracking-widest">
+            <a class="hover:text-primary transition-colors" href="#">Documentation</a>
+            <a class="hover:text-primary transition-colors" href="#">Privacy Policy</a>
+            <a class="hover:text-primary transition-colors" href="#">Support</a>
+        </div>
+    </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
