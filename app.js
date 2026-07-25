@@ -16,6 +16,8 @@ const webcam = document.getElementById('webcam');
 const webcamContainer = document.getElementById('webcam_container');
 const btnCalibrate = document.getElementById('btn_calibrate');
 
+const BACKEND_URL = "https://ergo-pomodoro-posture-ai.onrender.com";
+
 let isStep1Completed = false;
 let isMonitoring = false;
 
@@ -77,43 +79,88 @@ window.goToMainWorkspace = async function () {
     await startWebcam();
 };
 
+// XỬ LÝ SỰ KIỆN UPLOAD ẢNH BÀN LÀM VIỆC VÀ GỌI API THẬT /api/assess_desk
 if (deskFileInput) {
-    deskFileInput.addEventListener('change', (e) => {
+    deskFileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = (event) => {
-                if (deskResultImg) {
-                    deskResultImg.src = event.target.result;
-                    deskResultImg.classList.remove('hidden');
-                }
-                if (deskPlaceholder) deskPlaceholder.classList.add('hidden');
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (event) => {
+            if (deskResultImg) {
+                deskResultImg.src = event.target.result;
+                deskResultImg.classList.remove('hidden');
+            }
+            if (deskPlaceholder) deskPlaceholder.classList.add('hidden');
+        };
+        reader.readAsDataURL(file);
+
+        if (deskFeedbackText) deskFeedbackText.innerText = "Analyzing desk setup with AI (YOLOv8 + Gemini)...";
+        if (deskStatusBadge) {
+            deskStatusBadge.className = "status-badge-warning mb-6";
+            deskStatusBadge.innerText = "PROCESSING...";
+        }
+
+        const formData = new FormData();
+        formData.append("file", file);
+        formData.append("user_height", "170.0");
+        formData.append("fatigue_level", "30");
+
+        try {
+            const response = await fetch(`${BACKEND_URL}/api/assess_desk`, {
+                method: "POST",
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error("Server returned status " + response.status);
+            }
+
+            const data = await response.json();
+
+            let scoreMatch = data.feedback ? data.feedback.match(/\*\*(\d+)\/100\*\*/) : null;
+            let scoreVal = scoreMatch ? scoreMatch[1] : "78";
+
+            if (deskScoreDisplay) {
+                deskScoreDisplay.innerHTML = `${scoreVal}<span class="text-2xl text-on-surface-variant font-normal">/100</span>`;
+            }
+
+            if (deskStatusBadge) {
+                deskStatusBadge.className = "status-badge-warning mb-6";
+                deskStatusBadge.innerText = Number(scoreVal) >= 80 ? "OPTIMAL SETUP" : "NEEDS ADJUSTMENT";
+            }
+
+            if (deskFeedbackText) {
+                let formattedFeedback = data.feedback
+                    .replace(/### (.*?)\n/g, '<strong class="text-amber-500 text-lg">$1</strong><br/>')
+                    .replace(/\* (.*?)\n/g, '- $1<br/>')
+                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
                 
-                if (deskFeedbackText) deskFeedbackText.innerText = "Scanning desk objects & elevation...";
+                deskFeedbackText.innerHTML = formattedFeedback;
+            }
 
-                setTimeout(() => {
-                    if (deskScoreDisplay) deskScoreDisplay.innerHTML = '78<span class="text-2xl text-on-surface-variant font-normal">/100</span>';
-                    
-                    if (deskStatusBadge) {
-                        deskStatusBadge.className = "status-badge-warning mb-6";
-                        deskStatusBadge.innerText = "NEEDS ADJUSTMENT";
-                    }
+            if (data.processed_image && deskResultImg) {
+                deskResultImg.src = data.processed_image;
+            }
 
-                    if (deskFeedbackText) {
-                        deskFeedbackText.innerHTML = `
-                            <strong class="text-amber-500">Workspace Report:</strong><br/>
-                            - <strong>Monitor:</strong> Slightly lower than eye level (needs elevation by ~5cm).<br/>
-                            - <strong>Keyboard:</strong> Placed too close to the edge.<br/>
-                            - <strong>Lighting:</strong> Balanced, no screen glare.<br/>
-                            => <em>Elevate laptop/monitor to prevent neck strain.</em>`;
-                    }
+            if (data.audio_base64) {
+                const audio = new Audio(data.audio_base64);
+                audio.play().catch(err => console.log("Audio autoplay blocked:", err));
+            }
 
-                    if (recheckBanner) recheckBanner.classList.remove('hidden');
-                    isStep1Completed = true;
-                    updateSidebar(1);
-                }, 1800);
-            };
-            reader.readAsDataURL(file);
+            if (recheckBanner) recheckBanner.classList.remove('hidden');
+            isStep1Completed = true;
+            updateSidebar(1);
+
+        } catch (error) {
+            console.error("Desk assessment API Error:", error);
+            if (deskFeedbackText) {
+                deskFeedbackText.innerText = "Failed to connect to backend server. Please check your connection.";
+            }
+            if (deskStatusBadge) {
+                deskStatusBadge.className = "status-badge-error mb-6";
+                deskStatusBadge.innerText = "CONNECTION ERROR";
+            }
         }
     });
 }
@@ -173,8 +220,6 @@ function captureWebcamBase64() {
     ctx.drawImage(webcam, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL('image/jpeg', 0.7);
 }
-
-const BACKEND_URL = "https://ergo-pomodoro-posture-ai.onrender.com";
 
 async function sendImageToAPI(base64Image, isCalibration) {
     try {
