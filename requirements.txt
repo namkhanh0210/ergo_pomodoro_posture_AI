@@ -7,3 +7,4 @@ gtts
 pydantic
 pillow
 google-genai
+python-multipart
