@@ -174,9 +174,11 @@ function captureWebcamBase64() {
     return canvas.toDataURL('image/jpeg', 0.7);
 }
 
+const BACKEND_URL = "https://ergo-pomodoro-posture-ai.onrender.com";
+
 async function sendImageToAPI(base64Image, isCalibration) {
     try {
-        const response = await fetch(`${https://ergo-pomodoro-posture-ai.onrender.com/}/api/analyze_frame`, {
+        const response = await fetch(`${BACKEND_URL}/api/analyze_frame`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -191,6 +193,7 @@ async function sendImageToAPI(base64Image, isCalibration) {
         console.error("API Error:", error);
         return null;
     }
+}
 }
 
 if (btnCalibrate) {
