@@ -176,7 +176,7 @@ function captureWebcamBase64() {
 
 async function sendImageToAPI(base64Image, isCalibration) {
     try {
-        const response = await fetch("http://localhost:8000/analyze", {
+        const response = await fetch("https://ergo-pomodoro-posture-ai.onrender.com/", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
