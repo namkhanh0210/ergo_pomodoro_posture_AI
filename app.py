@@ -24,7 +24,8 @@ app = FastAPI(title="ErgoAI - YOLOv8 System (Desk & Pose)")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "https://ergoandpostureai.vercel.app",  
+        "https://ergoandpostureai.vercel.app",
+        "https://ergo-pomodoro-posture-ai.onrender.com",
         "http://localhost:3000",                
         "http://localhost:5173"
     ],
