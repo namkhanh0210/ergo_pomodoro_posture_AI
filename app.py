@@ -4,25 +4,14 @@ import io
 import math
 import os
 import re
-
-os.environ["YOLO_CONFIG_DIR"] = "/tmp"
-os.environ["OMP_NUM_THREADS"] = "1"
-os.environ["MKL_NUM_THREADS"] = "1"
-os.environ["OPENBLAS_NUM_THREADS"] = "1"
-os.environ["VECLIB_MAXIMUM_THREADS"] = "1"
-os.environ["NUMEXPR_NUM_THREADS"] = "1"
-
-import torch
-torch.set_num_threads(1)
-
 import cv2
 import numpy as np
+import onnxruntime as ort
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from gtts import gTTS
+from gTTS import gTTS
 from pydantic import BaseModel
-from ultralytics import YOLO
 from PIL import Image
 
 try:
@@ -30,7 +19,7 @@ try:
 except ImportError:
     genai = None
 
-app = FastAPI(title="ErgoAI - YOLOv8 Lightweight System")
+app = FastAPI(title="ErgoAI - Lightweight ONNX Backend")
 
 app.add_middleware(
     CORSMiddleware,
@@ -40,20 +29,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-desk_model = None
-pose_model = None
+# Load ONNX Sessions (Dùng rất ít RAM)
+desk_session = None
+pose_session = None
 
-def get_desk_model():
-    global desk_model
-    if desk_model is None:
-        desk_model = YOLO('yolov8n.pt')
-    return desk_model
+def get_desk_session():
+    global desk_session
+    if desk_session is None:
+        desk_session = ort.InferenceSession("yolov8n.onnx")
+    return desk_session
 
-def get_pose_model():
-    global pose_model
-    if pose_model is None:
-        pose_model = YOLO('yolov8n-pose.pt')
-    return pose_model
+def get_pose_session():
+    global pose_session
+    if pose_session is None:
+        pose_session = ort.InferenceSession("yolov8n-pose.onnx")
+    return pose_session
 
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
 gemini_client = None
@@ -66,6 +56,11 @@ if GEMINI_API_KEY and genai:
 AUDIO_CACHE = {}
 MAX_CACHE_SIZE = 5
 SCREEN_REAL_WIDTH_CM = 35.0
+
+COCO_CLASSES = {
+    0: 'person', 39: 'bottle', 41: 'cup', 62: 'tvmonitor',
+    63: 'laptop', 64: 'mouse', 66: 'keyboard'
+}
 
 class ImageData(BaseModel):
     image_base64: str
@@ -103,20 +98,45 @@ def get_voice_base64(text: str, lang='en') -> str:
             return ""
     return AUDIO_CACHE[cache_key]
 
+def run_desk_onnx(img, conf_thresh=0.25):
+    h_orig, w_orig = img.shape[:2]
+    img_resized = cv2.resize(img, (480, 480))
+    img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+    input_tensor = img_rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
+    input_tensor = np.expand_dims(input_tensor, axis=0)
+
+    session = get_desk_session()
+    input_name = session.get_inputs()[0].name
+    outputs = session.run(None, {input_name: input_tensor})[0]
+
+    outputs = outputs[0].T  # Shape: [N, 84]
+    boxes = outputs[:, :4]
+    scores = outputs[:, 4:]
+    class_ids = np.argmax(scores, axis=1)
+    confidences = np.max(scores, axis=1)
+
+    mask = confidences >= conf_thresh
+    boxes, class_ids, confidences = boxes[mask], class_ids[mask], confidences[mask]
+
+    object_coords = {}
+    for box, cls_id, conf in zip(boxes, class_ids, confidences):
+        label = COCO_CLASSES.get(cls_id, None)
+        if not label:
+            continue
+        cx, cy, w, h = box
+        cx, cy, w_px = (cx / 480.0) * w_orig, (cy / 480.0) * h_orig, (w / 480.0) * w_orig
+        
+        if label not in object_coords:
+            object_coords[label] = []
+        object_coords[label].append({'center': (cx, cy), 'width_px': w_px})
+
+    return object_coords
+
 def process_single_image(img, user_height):
     h_img, w_img, _ = img.shape
     img_out = img.copy()
 
-    model = get_desk_model()
-    results = model(img_out, conf=0.25, imgsz=480, verbose=False)
-    object_coords = {}
-    for r in results:
-        for box in r.boxes:
-            label = model.names[int(box.cls[0])].lower()
-            x_center, y_center, width, height = box.xywh[0].tolist()
-            if label not in object_coords:
-                object_coords[label] = []
-            object_coords[label].append({'center': (x_center, y_center), 'width_px': width})
+    object_coords = run_desk_onnx(img_out, conf_thresh=0.25)
 
     x_origin, y_origin, w_origin_px = 0, 0, 0
     if 'laptop' in object_coords:
@@ -161,15 +181,11 @@ def process_single_image(img, user_height):
                 deductions += 10
 
     score = max(0, 100 - deductions)
-    
-    if 'results' in locals(): del results
-    if 'overlay' in locals(): del overlay
-    
     return img_out, list(dict.fromkeys(violations)), score
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "ErgoAI Production Backend is running!"}
+    return {"status": "online", "message": "ErgoAI Ultra-light ONNX Backend is running!"}
 
 @app.post("/api/assess_desk")
 async def assess_desk(
@@ -177,10 +193,6 @@ async def assess_desk(
     user_height: float = Form(170.0),
     fatigue_level: int = Form(30)
 ):
-    img_bgr = None
-    annotated_bgr = None
-    contents = None
-    nparr = None
     try:
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
@@ -211,9 +223,6 @@ async def assess_desk(
                 gemini_insights = response.text if response.text else ""
             except Exception as err:
                 gemini_insights = f"\n> AI Insight Error: `{str(err)}`"
-            finally:
-                if 'img_rgb' in locals(): del img_rgb
-                if 'raw_img' in locals(): del raw_img
 
         final_report = f"### Ergonomic Score: **{score}/100**\n\n{spatial_section}\n---\n{gemini_insights}"
         tts_text = clean_text_for_tts(gemini_insights if gemini_insights else "Analysis complete.")
@@ -225,17 +234,34 @@ async def assess_desk(
             "audio_base64": f"data:audio/mp3;base64,{audio_base64_str}" if audio_base64_str else ""
         }
     finally:
-        if 'contents' in locals() and contents is not None: del contents
-        if 'nparr' in locals() and nparr is not None: del nparr
-        if 'img_bgr' in locals() and img_bgr is not None: del img_bgr
-        if 'annotated_bgr' in locals() and annotated_bgr is not None: del annotated_bgr
         gc.collect()
+
+def run_pose_onnx(img):
+    h_orig, w_orig = img.shape[:2]
+    img_resized = cv2.resize(img, (256, 256))
+    img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
+    input_tensor = img_rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
+    input_tensor = np.expand_dims(input_tensor, axis=0)
+
+    session = get_pose_session()
+    input_name = session.get_inputs()[0].name
+    outputs = session.run(None, {input_name: input_tensor})[0]
+
+    outputs = outputs[0].T  # [N, 56]
+    box_confs = outputs[:, 4]
+    best_idx = np.argmax(box_confs)
+    if box_confs[best_idx] < 0.3:
+        return None, None
+
+    best_pred = outputs[best_idx]
+    kpts = best_pred[5:].reshape(17, 3)
+
+    kpts[:, 0] = (kpts[:, 0] / 256.0) * w_orig
+    kpts[:, 1] = (kpts[:, 1] / 256.0) * h_orig
+    return kpts[:, :2], kpts[:, 2]
 
 @app.post("/api/analyze_frame")
 def analyze_frame(data: ImageData):
-    img = None
-    results = None
-    nparr = None
     try:
         try:
             encoded_data = data.image_base64.split(',')[1] if ',' in data.image_base64 else data.image_base64
@@ -246,8 +272,7 @@ def analyze_frame(data: ImageData):
         except Exception:
             return {"status": "Invalid Image", "is_bad_posture": False, "eye_dist": 0, "shoulder_y": 0, "is_success": False}
 
-        model = get_pose_model()
-        results = model(img, imgsz=256, verbose=False)
+        kpts, confs = run_pose_onnx(img)
         
         status = "No person detected"
         current_eye_dist = 0.0
@@ -256,58 +281,44 @@ def analyze_frame(data: ImageData):
         is_success = False
         is_bad_posture = False
 
-        if len(results) > 0 and results[0].keypoints is not None and len(results[0].keypoints.xy) > 0:
-            kpts = results[0].keypoints.xy[0].cpu().numpy()
-            confs = results[0].keypoints.conf[0].cpu().numpy() if results[0].keypoints.conf is not None else np.ones(len(kpts))
-            
-            CONF_THRESHOLD = 0.5
+        if kpts is not None and len(kpts) >= 7:
+            left_eye, right_eye = kpts[1], kpts[2]
+            left_shoulder, right_shoulder = kpts[5], kpts[6]
+            CONF_THRESHOLD = 0.3
 
-            if len(kpts) >= 7:
-                left_eye, right_eye = kpts[1], kpts[2]
-                left_shoulder, right_shoulder = kpts[5], kpts[6]
+            if (confs[1] > CONF_THRESHOLD and confs[2] > CONF_THRESHOLD and
+                confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD):
 
-                if (confs[1] > CONF_THRESHOLD and confs[2] > CONF_THRESHOLD and
-                    confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD and
-                    np.any(left_eye) and np.any(right_eye) and 
-                    np.any(left_shoulder) and np.any(right_shoulder)):
+                current_eye_dist = calculate_distance(left_eye, right_eye)
+                current_shoulder_y = float((left_shoulder[1] + right_shoulder[1]) / 2)
 
-                    current_eye_dist = calculate_distance(left_eye, right_eye)
-                    current_shoulder_y = float((left_shoulder[1] + right_shoulder[1]) / 2)
+                shoulder_tilt = abs(left_shoulder[1] - right_shoulder[1])
+                eye_tilt = abs(left_eye[1] - right_eye[1])
 
-                    shoulder_tilt = abs(left_shoulder[1] - right_shoulder[1])
-                    eye_tilt = abs(left_eye[1] - right_eye[1])
-
-                    if data.is_calibration:
-                        if current_eye_dist > 60:
-                            status = "Error: Too CLOSE! Move back 50-70cm and recalibrate."
-                            color = (0, 0, 255)
-                        elif current_eye_dist < 30:
-                            status = "Error: Too FAR! Move closer 50-70cm and recalibrate."
-                            color = (0, 0, 255)
-                        elif shoulder_tilt > 12:
-                            status = "Error: SHOULDERS TILTED! Please sit straight."
-                            color = (0, 0, 255)
-                        else:
-                            status = "Success: Standard posture saved!"
-                            color = (0, 255, 0)
-                            is_success = True
+                if data.is_calibration:
+                    if current_eye_dist > 60:
+                        status = "Error: Too CLOSE! Move back 50-70cm and recalibrate."
+                    elif current_eye_dist < 30:
+                        status = "Error: Too FAR! Move closer 50-70cm and recalibrate."
+                    elif shoulder_tilt > 12:
+                        status = "Error: SHOULDERS TILTED! Please sit straight."
                     else:
-                        if data.baseline_eye_dist > 0 and current_eye_dist > (data.baseline_eye_dist * 1.25):
-                            status = "Warning: Too close to screen!"
-                            is_bad_posture = True
-                            color = (0, 0, 255)
-                        elif data.baseline_shoulder_y > 0 and current_shoulder_y > (data.baseline_shoulder_y + 15):
-                            status = "Warning: Bad posture (Slouching)!"
-                            is_bad_posture = True
-                            color = (0, 0, 255)
-                        elif shoulder_tilt > 18 or eye_tilt > 15:
-                            status = "Warning: Bad posture (Leaning)!"
-                            is_bad_posture = True
-                            color = (0, 0, 255)
-                        else:
-                            status = "Good posture"
-                            is_bad_posture = False
-                            color = (0, 255, 0)
+                        status = "Success: Standard posture saved!"
+                        color = (0, 255, 0)
+                        is_success = True
+                else:
+                    if data.baseline_eye_dist > 0 and current_eye_dist > (data.baseline_eye_dist * 1.25):
+                        status = "Warning: Too close to screen!"
+                        is_bad_posture = True
+                    elif data.baseline_shoulder_y > 0 and current_shoulder_y > (data.baseline_shoulder_y + 15):
+                        status = "Warning: Bad posture (Slouching)!"
+                        is_bad_posture = True
+                    elif shoulder_tilt > 18 or eye_tilt > 15:
+                        status = "Warning: Bad posture (Leaning)!"
+                        is_bad_posture = True
+                    else:
+                        status = "Good posture"
+                        color = (0, 255, 0)
 
                 cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                 cv2.circle(img, (int(left_eye[0]), int(left_eye[1])), 4, (255, 0, 0), -1)
@@ -327,9 +338,6 @@ def analyze_frame(data: ImageData):
             "is_success": is_success
         }
     finally:
-        if 'nparr' in locals() and nparr is not None: del nparr
-        if 'img' in locals() and img is not None: del img
-        if 'results' in locals() and results is not None: del results
         gc.collect()
 
 if __name__ == "__main__":
