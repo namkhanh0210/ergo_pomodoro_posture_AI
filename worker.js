@@ -1,54 +1,42 @@
 export default {
-  async fetch(request, env, ctx) {
-    // 1. Cấu hình các Header CORS cấp phép cho Vercel (Front-end)
+  async fetch(request) {
+    // 1. Cấu hình mở cửa cho TẤT CẢ các domain và header
     const corsHeaders = {
-      "Access-Control-Allow-Origin": "https://ergoandpostureai.vercel.app", // Có thể đổi thành "*" nếu muốn cho phép mọi nguồn
+      "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With",
+      "Access-Control-Allow-Headers": "*",
     };
 
-    // 2. Bắt buộc: Xử lý request thăm dò (OPTIONS preflight) từ trình duyệt
+    // 2. Trả lời ngay lập tức nếu trình duyệt hỏi thăm dò (OPTIONS)
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204, // No Content
-        headers: corsHeaders,
-      });
+      return new Response(null, { status: 204, headers: corsHeaders });
     }
 
-    // 3. Lấy URL gốc và đổi domain trỏ về Backend FastAPI thực sự của bạn
+    // 3. Trỏ về Backend Render
     const url = new URL(request.url);
-    
-    // ⚠️ QUAN TRỌNG: Thay domain dưới đây bằng domain Backend FastAPI (Hugging Face hoặc Render) của bạn
-    url.hostname = "ergo-pomodoro-posture-ai.onrender.com"; 
+    url.hostname = "ergo-pomodoro-posture-ai.onrender.com";
 
-    // Tạo request chuyển tiếp
     const proxyRequest = new Request(url.toString(), {
       method: request.method,
       headers: request.headers,
       body: request.body,
-      redirect: "follow",
     });
 
     try {
-      // 4. Gửi request đến Backend thật
       const response = await fetch(proxyRequest);
-
-      // 5. Clone response và gắn thêm CORS Headers vào trước khi trả về cho Front-end
-      const modifiedResponse = new Response(response.body, response);
-      for (const [key, value] of Object.entries(corsHeaders)) {
-        modifiedResponse.headers.set(key, value);
-      }
-
-      return modifiedResponse;
-    } catch (error) {
-      // Bắt lỗi nếu Backend thật bị sập hoặc timeout
-      return new Response(JSON.stringify({ error: "Backend is unreachable", details: error.message }), {
-        status: 502,
-        headers: {
-          "Content-Type": "application/json",
-          ...corsHeaders
-        }
+      const newResponse = new Response(response.body, response);
+      
+      // 4. Ép cứng header CORS vào kết quả trả về
+      newResponse.headers.set("Access-Control-Allow-Origin", "*");
+      newResponse.headers.set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
+      newResponse.headers.set("Access-Control-Allow-Headers", "*");
+      
+      return newResponse;
+    } catch (e) {
+      return new Response(JSON.stringify({ error: "Lỗi Proxy", details: e.message }), {
+        status: 500,
+        headers: { "Content-Type": "application/json", ...corsHeaders }
       });
     }
-  },
+  }
 };
