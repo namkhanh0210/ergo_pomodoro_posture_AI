@@ -1,522 +1,96 @@
-const sectionDesk = document.getElementById('desk_assessment_section');
-const sectionWorkspace = document.getElementById('main_workspace_section');
-const navStep1 = document.getElementById('nav_step1');
-const navStep2 = document.getElementById('nav_step2');
+const video = document.getElementById('webcam-video');
+const resultImage = document.getElementById('result-image');
+const statusDisplay = document.getElementById('status-display');
+const btnCalibrate = document.getElementById('btn-calibrate');
 
-const deskFileInput = document.getElementById('desk_file_input');
-const deskResultImg = document.getElementById('desk_result_img');
-const deskPlaceholder = document.getElementById('desk_placeholder');
-const btnAnalyzeFrame = document.getElementById('btn_analyze_desk_frame');
-const deskFeedbackText = document.getElementById('desk_feedback_text');
-const deskScoreDisplay = document.getElementById('desk_score_display');
-const deskStatusBadge = document.getElementById('desk_status_badge');
-const recheckBanner = document.getElementById('recheck_banner');
+let isProcessing = false;
+let isCalibration = false;
+let baselineEyeDist = 0.0;
+let baselineShoulderY = 0.0;
 
-const webcam = document.getElementById('webcam');
-const webcamContainer = document.getElementById('webcam_container');
-const btnCalibrate = document.getElementById('btn_calibrate');
+const API_URL = '/api/analyze_frame';
 
-const BACKEND_URL = "https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev";
-
-let isStep1Completed = false;
-let isMonitoring = false;
-let isProcessingFrame = false;
-
-let baselineEyeDist = 0;
-let baselineShoulderY = 0;
-
-let badPostureStartTime = 0;
-let goodPostureStartTime = 0;
-let isWarningActive = false;
-
-const captureCanvas = document.createElement('canvas');
-captureCanvas.width = 320;
-captureCanvas.height = 240;
-const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
-
-function compressImage(file, maxWidth = 800, quality = 0.6) {
-    return new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.readAsDataURL(file);
-        reader.onload = (event) => {
-            const img = new Image();
-            img.src = event.target.result;
-            img.onload = () => {
-                const canvas = document.createElement('canvas');
-                let width = img.width;
-                let height = img.height;
-
-                if (width > maxWidth) {
-                    height = Math.round((height * maxWidth) / width);
-                    width = maxWidth;
-                }
-
-                canvas.width = width;
-                canvas.height = height;
-
-                const ctx = canvas.getContext('2d');
-                ctx.drawImage(img, 0, 0, width, height);
-
-                canvas.toBlob(
-                    (blob) => {
-                        const compressedFile = new File([blob], file.name, {
-                            type: 'image/jpeg',
-                            lastModified: Date.now(),
-                        });
-                        resolve(compressedFile);
-                    },
-                    'image/jpeg',
-                    quality
-                );
-            };
-            img.onerror = (err) => reject(err);
-        };
-        reader.onerror = (err) => reject(err);
-    });
-}
-
-function updateSidebar(activeStep) {
-    if (activeStep === 1) {
-        if (navStep1) navStep1.className = "px-4 py-3 text-primary font-bold bg-primary/10 rounded-xl font-label-caps text-label-caps translate-x-1 transition-transform block";
-        if (navStep2) {
-            if (isStep1Completed) {
-                navStep2.className = "px-4 py-3 text-on-surface-variant font-medium hover:bg-surface-container-highest transition-all rounded-xl font-label-caps text-label-caps block";
-                navStep2.innerText = "MONITOR & FOCUS";
-            } else {
-                navStep2.className = "px-4 py-3 text-on-surface-variant/50 font-medium cursor-not-allowed transition-all rounded-xl font-label-caps text-label-caps block";
-                navStep2.innerText = "MONITOR & FOCUS 🔒";
-            }
-        }
-    } else {
-        if (navStep1) navStep1.className = "px-4 py-3 text-on-surface-variant font-medium hover:bg-surface-container-highest transition-all rounded-xl font-label-caps text-label-caps block";
-        if (navStep2) {
-            navStep2.className = "px-4 py-3 text-primary font-bold bg-primary/10 rounded-xl font-label-caps text-label-caps translate-x-1 transition-transform block";
-            navStep2.innerText = "MONITOR & FOCUS";
-        }
-    }
-}
-
-window.showStep = function (stepNumber) {
-    if (stepNumber === 1) {
-        stopPostureAI();
-        stopWebcam();
-        if (sectionDesk) sectionDesk.classList.remove('hidden');
-        if (sectionWorkspace) sectionWorkspace.classList.add('hidden');
-        updateSidebar(1);
-    } else {
-        trySwitchStep2();
-    }
-};
-
-window.trySwitchStep2 = function () {
-    if (!isStep1Completed) {
-        alert("Please complete Step 1 (upload an image for analysis) or click 'SKIP TO FOCUS WORKSPACE' to unlock!");
-        return;
-    }
-    goToMainWorkspace();
-};
-
-window.goToMainWorkspace = async function () {
-    isStep1Completed = true;
-    if (sectionDesk) sectionDesk.classList.add('hidden');
-    if (sectionWorkspace) sectionWorkspace.classList.remove('hidden');
-    updateSidebar(2);
-    await startWebcam();
-};
-
-if (deskFileInput) {
-    deskFileInput.addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        if (deskFeedbackText) deskFeedbackText.innerText = "Compressing & Analyzing desk setup with AI...";
-        if (deskStatusBadge) {
-            deskStatusBadge.className = "status-badge-warning mb-6";
-            deskStatusBadge.innerText = "PROCESSING...";
-        }
-
-        try {
-            const compressedFile = await compressImage(file, 800, 0.6);
-            const reader = new FileReader();
-            
-            reader.onload = (event) => {
-                if (deskResultImg) {
-                    deskResultImg.src = event.target.result;
-                    deskResultImg.classList.remove('hidden');
-                }
-                if (deskPlaceholder) deskPlaceholder.classList.add('hidden');
-            };
-            reader.readAsDataURL(compressedFile);
-
-            const formData = new FormData();
-            formData.append("file", compressedFile);
-            formData.append("user_height", "170.0");
-            formData.append("fatigue_level", "30");
-
-            const response = await fetch(`${BACKEND_URL}/api/assess_desk`, {
-                method: "POST",
-                body: formData
-            });
-
-            const responseText = await response.text();
-
-            if (!response.ok) {
-                throw new Error(`Status ${response.status}: ${responseText}`);
-            }
-
-            let data;
-            try {
-                data = JSON.parse(responseText);
-            } catch (err) {
-                throw new Error("Lỗi JSON: " + responseText.substring(0, 100));
-            }
-
-            let scoreMatch = data.feedback ? data.feedback.match(/\*\*(\d+)\/100\*\*/) : null;
-            let scoreVal = scoreMatch ? scoreMatch[1] : "78";
-
-            if (deskScoreDisplay) {
-                deskScoreDisplay.innerHTML = `${scoreVal}<span class="text-2xl text-on-surface-variant font-normal">/100</span>`;
-            }
-
-            if (deskStatusBadge) {
-                deskStatusBadge.className = "status-badge-warning mb-6";
-                deskStatusBadge.innerText = Number(scoreVal) >= 80 ? "OPTIMAL SETUP" : "NEEDS ADJUSTMENT";
-            }
-
-            if (deskFeedbackText) {
-                let formattedFeedback = data.feedback
-                    .replace(/### (.*?)\n/g, '<strong class="text-amber-500 text-lg">$1</strong><br/>')
-                    .replace(/\* (.*?)\n/g, '- $1<br/>')
-                    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-                deskFeedbackText.innerHTML = formattedFeedback;
-            }
-
-            if (data.processed_image && deskResultImg) {
-                deskResultImg.src = data.processed_image;
-            }
-
-            if (data.audio_base64) {
-                const audio = new Audio(data.audio_base64);
-                audio.play().catch(err => console.log("Audio autoplay blocked:", err));
-                audio.onended = () => { audio.src = ""; };
-            }
-
-            if (recheckBanner) recheckBanner.classList.remove('hidden');
-            isStep1Completed = true;
-            updateSidebar(1);
-
-        } catch (error) {
-            if (deskFeedbackText) {
-                deskFeedbackText.innerText = "Lỗi Server: " + error.message;
-            }
-            if (deskStatusBadge) {
-                deskStatusBadge.className = "status-badge-error mb-6";
-                deskStatusBadge.innerText = "CONNECTION ERROR";
-            }
-        }
-    });
-}
-
-if (btnAnalyzeFrame) {
-    btnAnalyzeFrame.addEventListener('click', () => {
-        if (deskFileInput) {
-            deskFileInput.click();
-        }
-    });
-}
-
-async function startWebcam() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        alert("Your browser does not support camera access or requires HTTPS.");
-        return false;
-    }
-
-    if (webcam && !webcam.srcObject) {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: { ideal: 640 }, height: { ideal: 480 } } 
-            });
-            webcam.srcObject = stream;
-            await new Promise((resolve) => {
-                webcam.onloadedmetadata = () => resolve();
-            });
-            await webcam.play();
-            return true;
-        } catch (err) {
-            const statusEl = document.getElementById('posture_status');
-            if (statusEl) {
-                statusEl.innerText = "CAMERA PERMISSION DENIED";
-                statusEl.className = "font-bold text-error tracking-wide";
-            }
-            return false;
-        }
-    }
-    return true;
-}
-
-function stopWebcam() {
-    if (webcam && webcam.srcObject) {
-        const tracks = webcam.srcObject.getTracks();
-        tracks.forEach(track => track.stop());
-        webcam.srcObject = null;
-    }
-}
-
-function captureWebcamBase64() {
-    if (!webcam || !webcam.srcObject || webcam.readyState !== 4) return null;
-    captureCtx.drawImage(webcam, 0, 0, captureCanvas.width, captureCanvas.height);
-    return captureCanvas.toDataURL('image/jpeg', 0.5);
-}
-
-async function sendImageToAPI(base64Image, isCalibration) {
+async function initWebcam() {
     try {
-        const payload = JSON.stringify({
-            image_base64: base64Image,
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+    } catch (err) {
+        alert("Webcam access denied or unavailable.");
+    }
+}
+
+function captureCompressedBase64() {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    
+    const scale = 480 / Math.max(video.videoWidth, video.videoHeight);
+    canvas.width = video.videoWidth * scale;
+    canvas.height = video.videoHeight * scale;
+    
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.45);
+}
+
+async function processFrame() {
+    if (isProcessing || video.videoWidth === 0) return;
+    
+    isProcessing = true;
+    
+    try {
+        const base64Data = captureCompressedBase64();
+        
+        const payload = {
+            image_base64: base64Data,
             is_calibration: isCalibration,
             baseline_eye_dist: baselineEyeDist,
             baseline_shoulder_y: baselineShoulderY
-        });
+        };
 
-        const response = await fetch(`${BACKEND_URL}/api/analyze_frame`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: payload
+        const response = await fetch(API_URL, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
         });
-
-        if (!response.ok) {
-            await response.text().catch(() => {});
-            return null;
-        }
 
         const data = await response.json();
-        return data;
+
+        if (data.image) {
+            resultImage.src = data.image;
+        }
+        
+        if (data.status) {
+            statusDisplay.innerText = data.status;
+        }
+
+        if (isCalibration && data.is_success) {
+            baselineEyeDist = data.eye_dist;
+            baselineShoulderY = data.shoulder_y;
+            isCalibration = false;
+            statusDisplay.style.color = "green";
+        } else if (data.is_bad_posture) {
+            statusDisplay.style.color = "red";
+        } else {
+            statusDisplay.style.color = "black";
+        }
+
     } catch (error) {
-        return null;
+        statusDisplay.innerText = "Connection error";
+    } finally {
+        isProcessing = false;
     }
 }
 
 if (btnCalibrate) {
-    btnCalibrate.addEventListener('click', async () => {
-        const isCamReady = await startWebcam();
-        if (!isCamReady) return;
-
-        const statusEl = document.getElementById('posture_status');
-        btnCalibrate.innerText = "Calibrating...";
-        btnCalibrate.disabled = true;
-
-        if (statusEl) {
-            statusEl.innerText = "ANALYZING BASELINE...";
-            statusEl.className = "font-bold text-amber-500 tracking-wide animate-pulse";
-        }
-
-        let base64Img = captureWebcamBase64();
-        if (!base64Img) {
-            btnCalibrate.innerText = "Try Again";
-            btnCalibrate.disabled = false;
-            return;
-        }
-
-        let apiData = await sendImageToAPI(base64Img, true);
-        base64Img = null; 
-
-        if (apiData && apiData.is_success) {
-            baselineEyeDist = apiData.eye_dist;
-            baselineShoulderY = apiData.shoulder_y;
-
-            if (statusEl) {
-                statusEl.innerText = "BASELINE SAVED";
-                statusEl.className = "font-bold text-primary tracking-wide";
-            }
-
-            const eyeEl = document.getElementById('metric_eye');
-            const shoulderEl = document.getElementById('metric_shoulder');
-            if (eyeEl) eyeEl.innerText = `${Math.round(baselineEyeDist)} px`;
-            if (shoulderEl) shoulderEl.innerText = `${Math.round(baselineShoulderY)} px`;
-
-            btnCalibrate.innerText = "Recalibrate";
-            btnCalibrate.disabled = false;
-            startPostureAI();
-        } else {
-            if (statusEl) {
-                statusEl.innerText = apiData ? apiData.status : "API CONNECT ERROR";
-                statusEl.className = "font-bold text-error tracking-wide";
-            }
-            btnCalibrate.innerText = "Try Again";
-            btnCalibrate.disabled = false;
-        }
-        
-        apiData = null; 
+    btnCalibrate.addEventListener('click', () => {
+        isCalibration = true;
+        statusDisplay.innerText = "Calibrating...";
     });
 }
 
-function startPostureAI() {
-    if (isMonitoring) return;
-    isMonitoring = true;
-
-    async function monitorLoop() {
-        if (!isMonitoring) return;
-
-        if (!isProcessingFrame) {
-            isProcessingFrame = true;
-            let base64Img = captureWebcamBase64();
-            
-            if (base64Img) {
-                let apiData = await sendImageToAPI(base64Img, false);
-                if (apiData && isMonitoring) {
-                    handleAPIResponse(apiData);
-                }
-                apiData = null; 
-            }
-            
-            base64Img = null; 
-            isProcessingFrame = false;
-        }
-
-        if (isMonitoring) {
-            setTimeout(monitorLoop, 2500);
-        }
-    }
-
-    monitorLoop();
-}
-
-function stopPostureAI() {
-    isMonitoring = false;
-    isProcessingFrame = false;
-}
-
-function handleAPIResponse(response) {
-    const now = Date.now();
-    const statusEl = document.getElementById('posture_status');
-    const eyeEl = document.getElementById('metric_eye');
-    const shoulderEl = document.getElementById('metric_shoulder');
-
-    if (eyeEl) eyeEl.innerText = `${Math.round(response.eye_dist)} px`;
-    if (shoulderEl) shoulderEl.innerText = `${Math.round(response.shoulder_y)} px`;
-
-    if (response.is_bad_posture) {
-        goodPostureStartTime = 0;
-        if (badPostureStartTime === 0) {
-            badPostureStartTime = now;
-        }
-
-        const elapsedBadTime = now - badPostureStartTime;
-        if (elapsedBadTime >= 5000) {
-            isWarningActive = true;
-            showWarningUI(response.status, statusEl);
-        } else {
-            const countdown = 5 - Math.floor(elapsedBadTime / 1000);
-            if (statusEl) {
-                statusEl.innerText = `${response.status} (${countdown}s)`;
-                statusEl.className = "font-bold text-amber-500 tracking-wide";
-            }
-        }
-    } else {
-        if (goodPostureStartTime === 0) {
-            goodPostureStartTime = now;
-        }
-
-        const elapsedGoodTime = now - goodPostureStartTime;
-        if (elapsedGoodTime >= 1000) {
-            badPostureStartTime = 0;
-            if (isWarningActive) {
-                hideWarningUI(statusEl);
-                isWarningActive = false;
-            } else if (statusEl) {
-                statusEl.innerText = "GOOD POSTURE";
-                statusEl.className = "font-bold text-primary tracking-wide";
-            }
-        }
-    }
-}
-
-function showWarningUI(message, statusEl) {
-    if (statusEl) {
-        statusEl.innerText = `🚨 ${message} 🚨`;
-        statusEl.className = "font-bold text-error tracking-wide animate-pulse";
-    }
-    if (webcamContainer) {
-        webcamContainer.classList.add('ring-4', 'ring-red-500');
-    }
-}
-
-function hideWarningUI(statusEl) {
-    if (statusEl) {
-        statusEl.innerText = "GOOD POSTURE";
-        statusEl.className = "font-bold text-primary tracking-wide";
-    }
-    if (webcamContainer) {
-        webcamContainer.classList.remove('ring-4', 'ring-red-500');
-    }
-}
-
-let timerInterval = null;
-const TOTAL_SECONDS = 25 * 60;
-let timeLeft = TOTAL_SECONDS;
-let isRunning = false;
-let completedSessions = 3;
-
-const timerDisplay = document.getElementById('timer_display');
-const timerProgress = document.getElementById('timer_progress');
-const btnTimerStart = document.getElementById('btn_timer_start');
-const btnTimerPause = document.getElementById('btn_timer_pause');
-const btnTimerReset = document.getElementById('btn_timer_reset');
-const sessionTracker = document.getElementById('session_tracker');
-
-function updateTimerDisplay() {
-    if (!timerDisplay) return;
-    const m = Math.floor(timeLeft / 60).toString().padStart(2, '0');
-    const s = (timeLeft % 60).toString().padStart(2, '0');
-    timerDisplay.innerText = `${m}:${s}`;
-
-    if (timerProgress) {
-        const percentage = ((TOTAL_SECONDS - timeLeft) / TOTAL_SECONDS) * 100;
-        timerProgress.style.width = `${percentage}%`;
-    }
-}
-
-if (btnTimerStart) {
-    btnTimerStart.addEventListener('click', () => {
-        if (isRunning) return;
-        isRunning = true;
-        btnTimerStart.innerText = "Focusing...";
-
-        timerInterval = setInterval(() => {
-            if (timeLeft > 0) {
-                timeLeft--;
-                updateTimerDisplay();
-            } else {
-                clearInterval(timerInterval);
-                isRunning = false;
-                completedSessions++;
-                if (sessionTracker) {
-                    sessionTracker.innerText = `${completedSessions} of 4 Sessions Completed`;
-                }
-                btnTimerStart.innerText = "Start Session";
-                alert("25 minutes completed! Time to stand up and stretch.");
-                timeLeft = TOTAL_SECONDS;
-                updateTimerDisplay();
-            }
-        }, 1000);
+initWebcam().then(() => {
+    video.addEventListener('loadeddata', () => {
+        setInterval(processFrame, 2000);
     });
-}
-
-if (btnTimerPause) {
-    btnTimerPause.addEventListener('click', () => {
-        clearInterval(timerInterval);
-        isRunning = false;
-        if (btnTimerStart) btnTimerStart.innerText = "Resume Session";
-    });
-}
-
-if (btnTimerReset) {
-    btnTimerReset.addEventListener('click', () => {
-        clearInterval(timerInterval);
-        isRunning = false;
-        timeLeft = TOTAL_SECONDS;
-        updateTimerDisplay();
-        if (btnTimerStart) btnTimerStart.innerText = "Start Session";
-    });
-}
-
-updateTimerDisplay();
+});
