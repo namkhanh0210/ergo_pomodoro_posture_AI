@@ -3,6 +3,7 @@ import gc
 import io
 import math
 import os
+import re
 
 os.environ["YOLO_CONFIG_DIR"] = "/tmp"
 os.environ["OMP_NUM_THREADS"] = "1"
@@ -63,7 +64,7 @@ if GEMINI_API_KEY and genai:
         print(f"[Warning] Failed to initialize Gemini Client: {e}")
 
 AUDIO_CACHE = {}
-MAX_CACHE_SIZE = 30
+MAX_CACHE_SIZE = 5
 SCREEN_REAL_WIDTH_CM = 35.0
 
 class ImageData(BaseModel):
@@ -80,7 +81,6 @@ def cv2_to_base64(image):
     return f"data:image/jpeg;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
 def clean_text_for_tts(text):
-    import re
     cleaned = re.sub(r'[\#\*\_\`\>\-\[\]\(\)]', ' ', text)
     return re.sub(r'\s+', ' ', cleaned).strip()
 
@@ -161,6 +161,10 @@ def process_single_image(img, user_height):
                 deductions += 10
 
     score = max(0, 100 - deductions)
+    
+    if 'results' in locals(): del results
+    if 'overlay' in locals(): del overlay
+    
     return img_out, list(dict.fromkeys(violations)), score
 
 @app.get("/")
@@ -173,6 +177,10 @@ async def assess_desk(
     user_height: float = Form(170.0),
     fatigue_level: int = Form(30)
 ):
+    img_bgr = None
+    annotated_bgr = None
+    contents = None
+    nparr = None
     try:
         contents = await file.read()
         nparr = np.frombuffer(contents, np.uint8)
@@ -182,8 +190,8 @@ async def assess_desk(
             return {"feedback": "Invalid image format.", "processed_image": "", "audio_base64": ""}
 
         h, w = img_bgr.shape[:2]
-        if max(h, w) > 1280:
-            scale = 1280 / max(h, w)
+        if max(h, w) > 640:
+            scale = 640 / max(h, w)
             img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)))
 
         annotated_bgr, violations, score = process_single_image(img_bgr, user_height)
@@ -203,6 +211,9 @@ async def assess_desk(
                 gemini_insights = response.text if response.text else ""
             except Exception as err:
                 gemini_insights = f"\n> AI Insight Error: `{str(err)}`"
+            finally:
+                if 'img_rgb' in locals(): del img_rgb
+                if 'raw_img' in locals(): del raw_img
 
         final_report = f"### Ergonomic Score: **{score}/100**\n\n{spatial_section}\n---\n{gemini_insights}"
         tts_text = clean_text_for_tts(gemini_insights if gemini_insights else "Analysis complete.")
@@ -214,10 +225,17 @@ async def assess_desk(
             "audio_base64": f"data:audio/mp3;base64,{audio_base64_str}" if audio_base64_str else ""
         }
     finally:
+        if 'contents' in locals() and contents is not None: del contents
+        if 'nparr' in locals() and nparr is not None: del nparr
+        if 'img_bgr' in locals() and img_bgr is not None: del img_bgr
+        if 'annotated_bgr' in locals() and annotated_bgr is not None: del annotated_bgr
         gc.collect()
 
 @app.post("/api/analyze_frame")
 def analyze_frame(data: ImageData):
+    img = None
+    results = None
+    nparr = None
     try:
         try:
             encoded_data = data.image_base64.split(',')[1] if ',' in data.image_base64 else data.image_base64
@@ -291,11 +309,11 @@ def analyze_frame(data: ImageData):
                             is_bad_posture = False
                             color = (0, 255, 0)
 
-                    cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                    cv2.circle(img, (int(left_eye[0]), int(left_eye[1])), 4, (255, 0, 0), -1)
-                    cv2.circle(img, (int(right_eye[0]), int(right_eye[1])), 4, (255, 0, 0), -1)
-                    cv2.line(img, (int(left_shoulder[0]), int(left_shoulder[1])), 
-                                  (int(right_shoulder[0]), int(right_shoulder[1])), (0, 255, 0), 2)
+                cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+                cv2.circle(img, (int(left_eye[0]), int(left_eye[1])), 4, (255, 0, 0), -1)
+                cv2.circle(img, (int(right_eye[0]), int(right_eye[1])), 4, (255, 0, 0), -1)
+                cv2.line(img, (int(left_shoulder[0]), int(left_shoulder[1])), 
+                              (int(right_shoulder[0]), int(right_shoulder[1])), (0, 255, 0), 2)
 
         _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 50])
         processed_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -309,6 +327,9 @@ def analyze_frame(data: ImageData):
             "is_success": is_success
         }
     finally:
+        if 'nparr' in locals() and nparr is not None: del nparr
+        if 'img' in locals() and img is not None: del img
+        if 'results' in locals() and results is not None: del results
         gc.collect()
 
 if __name__ == "__main__":
