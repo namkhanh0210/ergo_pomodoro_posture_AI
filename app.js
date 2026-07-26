@@ -17,22 +17,29 @@ const webcamContainer = document.getElementById('webcam_container');
 const btnCalibrate = document.getElementById('btn_calibrate');
 
 const BACKEND_URL = "https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev";
+const MODEL_PATH = "./yolov8n-pose.onnx";
 
 let isStep1Completed = false;
 let isMonitoring = false;
-let isProcessingFrame = false;
+let sessionONNX = null;
 
 let baselineEyeDist = 0;
 let baselineShoulderY = 0;
+let baselineShoulderWidth = 0;
+let isCalibrated = false;
+
+let smoothedEyeDist = 0;
+let smoothedShoulderY = 0;
+let smoothedShoulderWidth = 0;
 
 let badPostureStartTime = 0;
 let goodPostureStartTime = 0;
 let isWarningActive = false;
 
-const captureCanvas = document.createElement('canvas');
-captureCanvas.width = 240;
-captureCanvas.height = 180;
-const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
+const yoloCanvas = document.createElement('canvas');
+yoloCanvas.width = 640;
+yoloCanvas.height = 640;
+const yoloCtx = yoloCanvas.getContext('2d', { willReadFrequently: true });
 
 function compressImage(file, maxWidth = 800, quality = 0.6) {
     return new Promise((resolve, reject) => {
@@ -121,7 +128,12 @@ window.goToMainWorkspace = async function () {
     if (sectionDesk) sectionDesk.classList.add('hidden');
     if (sectionWorkspace) sectionWorkspace.classList.remove('hidden');
     updateSidebar(2);
-    await startWebcam();
+
+    const isCamReady = await startWebcam();
+    if (isCamReady) {
+        await initYoloONNX();
+        startPostureAI();
+    }
 };
 
 if (deskFileInput) {
@@ -138,7 +150,7 @@ if (deskFileInput) {
         try {
             const compressedFile = await compressImage(file, 800, 0.6);
             const reader = new FileReader();
-            
+
             reader.onload = (event) => {
                 if (deskResultImg) {
                     deskResultImg.src = event.target.result;
@@ -233,8 +245,8 @@ async function startWebcam() {
 
     if (webcam && !webcam.srcObject) {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: { ideal: 320 }, height: { ideal: 240 } } 
+            const stream = await navigator.mediaDevices.getUserMedia({
+                video: { width: { ideal: 640 }, height: { ideal: 480 } }
             });
             webcam.srcObject = stream;
             await new Promise((resolve) => {
@@ -262,91 +274,48 @@ function stopWebcam() {
     }
 }
 
-function captureWebcamBase64() {
-    if (!webcam || !webcam.srcObject || webcam.readyState !== 4) return null;
-    captureCtx.drawImage(webcam, 0, 0, captureCanvas.width, captureCanvas.height);
-    return captureCanvas.toDataURL('image/jpeg', 0.25);
-}
+async function initYoloONNX() {
+    if (sessionONNX) return true;
+    const statusEl = document.getElementById('posture_status');
+    if (statusEl) {
+        statusEl.innerText = "LOADING YOLO MODEL...";
+        statusEl.className = "font-bold text-amber-500 tracking-wide animate-pulse";
+    }
 
-async function sendImageToAPI(base64Image, isCalibration) {
     try {
-        const payload = JSON.stringify({
-            image_base64: base64Image,
-            is_calibration: isCalibration,
-            baseline_eye_dist: baselineEyeDist,
-            baseline_shoulder_y: baselineShoulderY
+        sessionONNX = await ort.InferenceSession.create(MODEL_PATH, {
+            executionProviders: ['wasm']
         });
-
-        const response = await fetch(`${BACKEND_URL}/api/analyze_frame`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: payload
-        });
-
-        if (!response.ok) {
-            await response.text().catch(() => {});
-            return null;
+        if (statusEl) {
+            statusEl.innerText = "YOLO READY (CALIBRATE REQUIRED)";
+            statusEl.className = "font-bold text-primary tracking-wide";
         }
-
-        const data = await response.json();
-        return data;
-    } catch (error) {
-        return null;
+        return true;
+    } catch (err) {
+        if (statusEl) {
+            statusEl.innerText = "MODEL LOAD ERROR";
+            statusEl.className = "font-bold text-error tracking-wide";
+        }
+        return false;
     }
 }
 
-if (btnCalibrate) {
-    btnCalibrate.addEventListener('click', async () => {
-        const isCamReady = await startWebcam();
-        if (!isCamReady) return;
+function preprocessWebcamToTensor() {
+    if (!webcam || webcam.readyState !== 4) return null;
 
-        const statusEl = document.getElementById('posture_status');
-        btnCalibrate.innerText = "Calibrating...";
-        btnCalibrate.disabled = true;
+    yoloCtx.drawImage(webcam, 0, 0, 640, 640);
+    const imageData = yoloCtx.getImageData(0, 0, 640, 640);
+    const data = imageData.data;
 
-        if (statusEl) {
-            statusEl.innerText = "ANALYZING BASELINE...";
-            statusEl.className = "font-bold text-amber-500 tracking-wide animate-pulse";
-        }
+    const float32Data = new Float32Array(1 * 3 * 640 * 640);
 
-        let base64Img = captureWebcamBase64();
-        if (!base64Img) {
-            btnCalibrate.innerText = "Try Again";
-            btnCalibrate.disabled = false;
-            return;
-        }
+    for (let i = 0; i < 640 * 640; i++) {
+        float32Data[i] = data[i * 4] / 255.0;
+        float32Data[640 * 640 + i] = data[i * 4 + 1] / 255.0;
+        float32Data[2 * 640 * 640 + i] = data[i * 4 + 2] / 255.0;
+    }
 
-        let apiData = await sendImageToAPI(base64Img, true);
-        base64Img = null; 
-
-        if (apiData && apiData.is_success) {
-            baselineEyeDist = apiData.eye_dist;
-            baselineShoulderY = apiData.shoulder_y;
-
-            if (statusEl) {
-                statusEl.innerText = "BASELINE SAVED";
-                statusEl.className = "font-bold text-primary tracking-wide";
-            }
-
-            const eyeEl = document.getElementById('metric_eye');
-            const shoulderEl = document.getElementById('metric_shoulder');
-            if (eyeEl) eyeEl.innerText = `${Math.round(baselineEyeDist)} px`;
-            if (shoulderEl) shoulderEl.innerText = `${Math.round(baselineShoulderY)} px`;
-
-            btnCalibrate.innerText = "Recalibrate";
-            btnCalibrate.disabled = false;
-            startPostureAI();
-        } else {
-            if (statusEl) {
-                statusEl.innerText = apiData ? apiData.status : "API CONNECT ERROR";
-                statusEl.className = "font-bold text-error tracking-wide";
-            }
-            btnCalibrate.innerText = "Try Again";
-            btnCalibrate.disabled = false;
-        }
-        
-        apiData = null; 
-    });
+    return new ort.Tensor('float32', float32Data, [1, 3, 640, 640]);
 }
 
 function startPostureAI() {
@@ -356,24 +325,20 @@ function startPostureAI() {
     async function monitorLoop() {
         if (!isMonitoring) return;
 
-        if (!isProcessingFrame) {
-            isProcessingFrame = true;
-            let base64Img = captureWebcamBase64();
-            
-            if (base64Img) {
-                let apiData = await sendImageToAPI(base64Img, false);
-                if (apiData && isMonitoring) {
-                    handleAPIResponse(apiData);
-                }
-                apiData = null; 
+        if (sessionONNX && webcam && webcam.readyState === 4) {
+            const inputTensor = preprocessWebcamToTensor();
+            if (inputTensor) {
+                try {
+                    const results = await sessionONNX.run({ images: inputTensor });
+                    const outputName = sessionONNX.outputNames[0];
+                    const outputTensor = results[outputName];
+                    processYoloOutput(outputTensor.data);
+                } catch (e) {}
             }
-            
-            base64Img = null; 
-            isProcessingFrame = false;
         }
 
         if (isMonitoring) {
-            setTimeout(monitorLoop, 50);
+            requestAnimationFrame(monitorLoop);
         }
     }
 
@@ -382,39 +347,131 @@ function startPostureAI() {
 
 function stopPostureAI() {
     isMonitoring = false;
-    isProcessingFrame = false;
 }
 
-function handleAPIResponse(response) {
-    const now = Date.now();
-    const statusEl = document.getElementById('posture_status');
+function processYoloOutput(data) {
+    let maxScore = -1;
+    let bestIdx = -1;
+
+    for (let i = 0; i < 8400; i++) {
+        const score = data[4 * 8400 + i];
+        if (score > maxScore && score > 0.45) {
+            maxScore = score;
+            bestIdx = i;
+        }
+    }
+
+    if (bestIdx === -1) return;
+
+    const getKP = (kpIdx) => {
+        const offset = 5 + kpIdx * 3;
+        return {
+            x: data[offset * 8400 + bestIdx],
+            y: data[(offset + 1) * 8400 + bestIdx],
+            conf: data[(offset + 2) * 8400 + bestIdx]
+        };
+    };
+
+    const leftEye = getKP(1);
+    const rightEye = getKP(2);
+    const leftShoulder = getKP(5);
+    const rightShoulder = getKP(6);
+
+    if (leftEye.conf < 0.3 || rightEye.conf < 0.3 || leftShoulder.conf < 0.3 || rightShoulder.conf < 0.3) {
+        return;
+    }
+
+    const currEyeDist = Math.hypot(leftEye.x - rightEye.x, leftEye.y - rightEye.y);
+    const currShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+    const currShoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+
+    if (smoothedEyeDist === 0) {
+        smoothedEyeDist = currEyeDist;
+        smoothedShoulderY = currShoulderY;
+        smoothedShoulderWidth = currShoulderWidth;
+    } else {
+        smoothedEyeDist = smoothedEyeDist * 0.75 + currEyeDist * 0.25;
+        smoothedShoulderY = smoothedShoulderY * 0.75 + currShoulderY * 0.25;
+        smoothedShoulderWidth = smoothedShoulderWidth * 0.75 + currShoulderWidth * 0.25;
+    }
+
     const eyeEl = document.getElementById('metric_eye');
     const shoulderEl = document.getElementById('metric_shoulder');
+    if (eyeEl) eyeEl.innerText = `${Math.round(smoothedEyeDist)} px`;
+    if (shoulderEl) shoulderEl.innerText = `${Math.round(smoothedShoulderY)} px`;
 
-    if (eyeEl) eyeEl.innerText = `${Math.round(response.eye_dist)} px`;
-    if (shoulderEl) shoulderEl.innerText = `${Math.round(response.shoulder_y)} px`;
+    if (!isCalibrated) return;
 
-    if (response.is_bad_posture) {
-        goodPostureStartTime = 0;
-        if (badPostureStartTime === 0) {
-            badPostureStartTime = now;
+    const currentRatio = smoothedEyeDist / (smoothedShoulderWidth || 1);
+    const baselineRatio = baselineEyeDist / (baselineShoulderWidth || 1);
+
+    let isBadPosture = false;
+    let statusText = "GOOD POSTURE";
+
+    if (currentRatio > baselineRatio * 1.2) {
+        isBadPosture = true;
+        statusText = "TOO CLOSE TO SCREEN";
+    } else if (smoothedShoulderY > baselineShoulderY + 20) {
+        isBadPosture = true;
+        statusText = "SLOUCHING DETECTED";
+    }
+
+    handlePostureStatus(isBadPosture, statusText);
+}
+
+if (btnCalibrate) {
+    btnCalibrate.addEventListener('click', async () => {
+        const isCamReady = await startWebcam();
+        if (!isCamReady) return;
+
+        const modelReady = await initYoloONNX();
+        if (!modelReady) return;
+
+        if (smoothedEyeDist > 0) {
+            baselineEyeDist = smoothedEyeDist;
+            baselineShoulderY = smoothedShoulderY;
+            baselineShoulderWidth = smoothedShoulderWidth;
+
+            isCalibrated = true;
+            const statusEl = document.getElementById('posture_status');
+            if (statusEl) {
+                statusEl.innerText = "BASELINE SAVED";
+                statusEl.className = "font-bold text-primary tracking-wide";
+            }
+            btnCalibrate.innerText = "Recalibrate";
+            startPostureAI();
+        } else {
+            const statusEl = document.getElementById('posture_status');
+            if (statusEl) {
+                statusEl.innerText = "NO PERSON DETECTED";
+                statusEl.className = "font-bold text-amber-500 tracking-wide";
+            }
+            btnCalibrate.innerText = "Try Again";
         }
+    });
+}
+
+function handlePostureStatus(isBadPosture, statusMessage) {
+    const now = Date.now();
+    const statusEl = document.getElementById('posture_status');
+
+    if (isBadPosture) {
+        goodPostureStartTime = 0;
+        if (badPostureStartTime === 0) badPostureStartTime = now;
 
         const elapsedBadTime = now - badPostureStartTime;
-        if (elapsedBadTime >= 5000) {
+        if (elapsedBadTime >= 3000) {
             isWarningActive = true;
-            showWarningUI(response.status, statusEl);
+            showWarningUI(statusMessage, statusEl);
         } else {
-            const countdown = 5 - Math.floor(elapsedBadTime / 1000);
+            const countdown = 3 - Math.floor(elapsedBadTime / 1000);
             if (statusEl) {
-                statusEl.innerText = `${response.status} (${countdown}s)`;
+                statusEl.innerText = `${statusMessage} (${countdown}s)`;
                 statusEl.className = "font-bold text-amber-500 tracking-wide";
             }
         }
     } else {
-        if (goodPostureStartTime === 0) {
-            goodPostureStartTime = now;
-        }
+        if (goodPostureStartTime === 0) goodPostureStartTime = now;
 
         const elapsedGoodTime = now - goodPostureStartTime;
         if (elapsedGoodTime >= 1000) {
