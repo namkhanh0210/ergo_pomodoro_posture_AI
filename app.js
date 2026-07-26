@@ -16,11 +16,11 @@ const webcam = document.getElementById('webcam');
 const webcamContainer = document.getElementById('webcam_container');
 const btnCalibrate = document.getElementById('btn_calibrate');
 
-const BACKEND_URL = "https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev/";
+const BACKEND_URL = "https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev";
 
 let isStep1Completed = false;
 let isMonitoring = false;
-let isProcessingFrame = false; // Biến khóa luồng gửi request
+let isProcessingFrame = false;
 
 let baselineEyeDist = 0;
 let baselineShoulderY = 0;
@@ -80,7 +80,6 @@ window.goToMainWorkspace = async function () {
     await startWebcam();
 };
 
-// UPLOAD ẢNH BÀN LÀM VIỆC & API /api/assess_desk
 if (deskFileInput) {
     deskFileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -182,7 +181,6 @@ async function startWebcam() {
 
     if (webcam && !webcam.srcObject) {
         try {
-            // Khởi tạo Webcam ở độ phân giải 640x480 để tiết kiệm RAM
             const stream = await navigator.mediaDevices.getUserMedia({ 
                 video: { width: { ideal: 640 }, height: { ideal: 480 } } 
             });
@@ -222,13 +220,12 @@ function captureWebcamBase64() {
     canvas.height = 480;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(webcam, 0, 0, canvas.width, canvas.height);
-    // Nén ảnh chất lượng 0.6 để tải nhanh hơn
     return canvas.toDataURL('image/jpeg', 0.6);
 }
 
 async function sendImageToAPI(base64Image, isCalibration) {
     try {
-        const response = await fetch(`${https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev/}/api/analyze_frame`, {
+        const response = await fetch(`${BACKEND_URL}/api/analyze_frame`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -309,7 +306,6 @@ function startPostureAI() {
     async function monitorLoop() {
         if (!isMonitoring) return;
 
-        // Bỏ qua nếu frame trước vẫn chưa nhận phản hồi
         if (!isProcessingFrame) {
             isProcessingFrame = true;
             const base64Img = captureWebcamBase64();
@@ -324,7 +320,6 @@ function startPostureAI() {
         }
 
         if (isMonitoring) {
-            // Tăng thời gian chờ lên 2.5 giây/lần kiểm tra
             setTimeout(monitorLoop, 2500);
         }
     }
@@ -407,7 +402,6 @@ function hideWarningUI(statusEl) {
     }
 }
 
-// POMODORO TIMER LOGIC
 let timerInterval = null;
 const TOTAL_SECONDS = 25 * 60;
 let timeLeft = TOTAL_SECONDS;
