@@ -100,7 +100,6 @@ window.showStep = function (stepNumber) {
     if (stepNumber === 1) {
         stopPostureAI();
         stopWebcam();
-
         if (sectionDesk) sectionDesk.classList.remove('hidden');
         if (sectionWorkspace) sectionWorkspace.classList.add('hidden');
         updateSidebar(1);
@@ -122,7 +121,6 @@ window.goToMainWorkspace = async function () {
     if (sectionDesk) sectionDesk.classList.add('hidden');
     if (sectionWorkspace) sectionWorkspace.classList.remove('hidden');
     updateSidebar(2);
-
     await startWebcam();
 };
 
@@ -139,8 +137,8 @@ if (deskFileInput) {
 
         try {
             const compressedFile = await compressImage(file, 800, 0.6);
-
             const reader = new FileReader();
+            
             reader.onload = (event) => {
                 if (deskResultImg) {
                     deskResultImg.src = event.target.result;
@@ -160,12 +158,18 @@ if (deskFileInput) {
                 body: formData
             });
 
+            const responseText = await response.text();
+
             if (!response.ok) {
-                await response.text().catch(() => {});
-                throw new Error("Server returned status " + response.status);
+                throw new Error(`Status ${response.status}: ${responseText}`);
             }
 
-            const data = await response.json();
+            let data;
+            try {
+                data = JSON.parse(responseText);
+            } catch (err) {
+                throw new Error("Lỗi JSON: " + responseText.substring(0, 100));
+            }
 
             let scoreMatch = data.feedback ? data.feedback.match(/\*\*(\d+)\/100\*\*/) : null;
             let scoreVal = scoreMatch ? scoreMatch[1] : "78";
@@ -184,7 +188,6 @@ if (deskFileInput) {
                     .replace(/### (.*?)\n/g, '<strong class="text-amber-500 text-lg">$1</strong><br/>')
                     .replace(/\* (.*?)\n/g, '- $1<br/>')
                     .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-                
                 deskFeedbackText.innerHTML = formattedFeedback;
             }
 
@@ -195,9 +198,7 @@ if (deskFileInput) {
             if (data.audio_base64) {
                 const audio = new Audio(data.audio_base64);
                 audio.play().catch(err => console.log("Audio autoplay blocked:", err));
-                audio.onended = () => {
-                    audio.src = "";
-                };
+                audio.onended = () => { audio.src = ""; };
             }
 
             if (recheckBanner) recheckBanner.classList.remove('hidden');
@@ -205,9 +206,8 @@ if (deskFileInput) {
             updateSidebar(1);
 
         } catch (error) {
-            console.error("Desk assessment API Error:", error);
             if (deskFeedbackText) {
-                deskFeedbackText.innerText = "Failed to connect to backend server. Please check your connection.";
+                deskFeedbackText.innerText = "Lỗi Server: " + error.message;
             }
             if (deskStatusBadge) {
                 deskStatusBadge.className = "status-badge-error mb-6";
@@ -237,15 +237,12 @@ async function startWebcam() {
                 video: { width: { ideal: 640 }, height: { ideal: 480 } } 
             });
             webcam.srcObject = stream;
-
             await new Promise((resolve) => {
                 webcam.onloadedmetadata = () => resolve();
             });
-
             await webcam.play();
             return true;
         } catch (err) {
-            console.error("Webcam init error:", err);
             const statusEl = document.getElementById('posture_status');
             if (statusEl) {
                 statusEl.innerText = "CAMERA PERMISSION DENIED";
@@ -294,7 +291,6 @@ async function sendImageToAPI(base64Image, isCalibration) {
         const data = await response.json();
         return data;
     } catch (error) {
-        console.error("API Error:", error);
         return null;
     }
 }
@@ -339,7 +335,6 @@ if (btnCalibrate) {
 
             btnCalibrate.innerText = "Recalibrate";
             btnCalibrate.disabled = false;
-
             startPostureAI();
         } else {
             if (statusEl) {
@@ -401,13 +396,11 @@ function handleAPIResponse(response) {
 
     if (response.is_bad_posture) {
         goodPostureStartTime = 0;
-
         if (badPostureStartTime === 0) {
             badPostureStartTime = now;
         }
 
         const elapsedBadTime = now - badPostureStartTime;
-
         if (elapsedBadTime >= 5000) {
             isWarningActive = true;
             showWarningUI(response.status, statusEl);
@@ -418,17 +411,14 @@ function handleAPIResponse(response) {
                 statusEl.className = "font-bold text-amber-500 tracking-wide";
             }
         }
-
     } else {
         if (goodPostureStartTime === 0) {
             goodPostureStartTime = now;
         }
 
         const elapsedGoodTime = now - goodPostureStartTime;
-
         if (elapsedGoodTime >= 1000) {
             badPostureStartTime = 0;
-
             if (isWarningActive) {
                 hideWarningUI(statusEl);
                 isWarningActive = false;
