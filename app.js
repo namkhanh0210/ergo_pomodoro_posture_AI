@@ -16,7 +16,7 @@ const webcam = document.getElementById('webcam');
 const webcamContainer = document.getElementById('webcam_container');
 const btnCalibrate = document.getElementById('btn_calibrate');
 
-const BACKEND_URL = "https://ergo-pomodoro-posture-ai.onrender.com";
+const BACKEND_URL = "https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev/";
 
 let isStep1Completed = false;
 let isMonitoring = false;
@@ -228,7 +228,7 @@ function captureWebcamBase64() {
 
 async function sendImageToAPI(base64Image, isCalibration) {
     try {
-        const response = await fetch(`${BACKEND_URL}/api/analyze_frame`, {
+        const response = await fetch(`${https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev/}/api/analyze_frame`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
