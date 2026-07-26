@@ -421,11 +421,26 @@ function processYoloOutput(data) {
 
 if (btnCalibrate) {
     btnCalibrate.addEventListener('click', async () => {
+        const statusEl = document.getElementById('posture_status');
+
         const isCamReady = await startWebcam();
         if (!isCamReady) return;
 
         const modelReady = await initYoloONNX();
         if (!modelReady) return;
+
+        startPostureAI();
+
+        btnCalibrate.disabled = true;
+        btnCalibrate.innerText = "Scanning (2s)...";
+        if (statusEl) {
+            statusEl.innerText = "SCANNING FOR PERSON...";
+            statusEl.className = "font-bold text-amber-500 tracking-wide animate-pulse";
+        }
+
+        smoothedEyeDist = 0;
+
+        await new Promise((resolve) => setTimeout(resolve, 2000));
 
         if (smoothedEyeDist > 0) {
             baselineEyeDist = smoothedEyeDist;
@@ -433,21 +448,20 @@ if (btnCalibrate) {
             baselineShoulderWidth = smoothedShoulderWidth;
 
             isCalibrated = true;
-            const statusEl = document.getElementById('posture_status');
             if (statusEl) {
                 statusEl.innerText = "BASELINE SAVED";
                 statusEl.className = "font-bold text-primary tracking-wide";
             }
             btnCalibrate.innerText = "Recalibrate";
-            startPostureAI();
         } else {
-            const statusEl = document.getElementById('posture_status');
             if (statusEl) {
                 statusEl.innerText = "NO PERSON DETECTED";
-                statusEl.className = "font-bold text-amber-500 tracking-wide";
+                statusEl.className = "font-bold text-error tracking-wide";
             }
             btnCalibrate.innerText = "Try Again";
         }
+
+        btnCalibrate.disabled = false;
     });
 }
 
