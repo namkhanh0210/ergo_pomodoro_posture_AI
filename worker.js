@@ -1,18 +1,21 @@
 export default {
   async fetch(request) {
-    // 1. Cấu hình mở cửa cho TẤT CẢ các domain và header
+    // 1. Cấu hình Headers chấp nhận CORS tuyệt đối
     const corsHeaders = {
       "Access-Control-Allow-Origin": "*",
       "Access-Control-Allow-Methods": "GET, HEAD, POST, OPTIONS",
       "Access-Control-Allow-Headers": "*",
     };
 
-    // 2. Trả lời ngay lập tức nếu trình duyệt hỏi thăm dò (OPTIONS)
+    // 2. Trả lời ngay lập tức request thăm dò (OPTIONS) từ trình duyệt
     if (request.method === "OPTIONS") {
-      return new Response(null, { status: 204, headers: corsHeaders });
+      return new Response(null, {
+        status: 204,
+        headers: corsHeaders
+      });
     }
 
-    // 3. Trỏ về Backend Render
+    // 3. Chuyển tiếp Request sang Backend Render
     const url = new URL(request.url);
     url.hostname = "ergo-pomodoro-posture-ai.onrender.com";
 
@@ -25,17 +28,20 @@ export default {
     try {
       const response = await fetch(proxyRequest);
       const newResponse = new Response(response.body, response);
-      
-      // 4. Ép cứng header CORS vào kết quả trả về
-      newResponse.headers.set("Access-Control-Allow-Origin", "*");
-      newResponse.headers.set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS");
-      newResponse.headers.set("Access-Control-Allow-Headers", "*");
-      
+
+      // 4. Bổ sung CORS headers vào Response trả về cho Vercel
+      for (const [key, value] of Object.entries(corsHeaders)) {
+        newResponse.headers.set(key, value);
+      }
+
       return newResponse;
-    } catch (e) {
-      return new Response(JSON.stringify({ error: "Lỗi Proxy", details: e.message }), {
-        status: 500,
-        headers: { "Content-Type": "application/json", ...corsHeaders }
+    } catch (error) {
+      return new Response(JSON.stringify({ error: "Lỗi kết nối Render", details: error.message }), {
+        status: 502,
+        headers: {
+          "Content-Type": "application/json",
+          ...corsHeaders
+        }
       });
     }
   }
