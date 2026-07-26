@@ -39,7 +39,7 @@ let badPostureStartTime = 0;
 let goodPostureStartTime = 0;
 let isWarningActive = false;
 
-// Canvas ẩn dùng cho việc xử lý YOLO Frame
+// Canvas ẩn dùng xử lý YOLO Frame
 const yoloCanvas = document.createElement('canvas');
 yoloCanvas.width = 640;
 yoloCanvas.height = 640;
@@ -344,7 +344,6 @@ function startPostureAI() {
             const inputTensor = preprocessWebcamToTensor();
             if (inputTensor) {
                 try {
-                    // Dùng linh hoạt tên input layer thay vì gán cứng 'images'
                     const inputName = sessionONNX.inputNames[0];
                     const feeds = {};
                     feeds[inputName] = inputTensor;
@@ -354,7 +353,7 @@ function startPostureAI() {
                     const outputTensor = results[outputName];
 
                     if (outputTensor && outputTensor.data) {
-                        processYoloOutput(outputTensor.data);
+                        processYoloOutput(outputTensor);
                     }
                 } catch (e) {
                     console.error("⚠️ [ONNX Execution Error]:", e);
@@ -374,28 +373,65 @@ function stopPostureAI() {
     isMonitoring = false;
 }
 
-function processYoloOutput(data) {
-    let maxScore = -1;
-    let bestIdx = -1;
+// XỬ LÝ MA TRẬN YOLOV8 POSE (TỰ ĐỘNG PHÁT HIỆN SHAPE [1, 56, 8400] VÀ [1, 8400, 56])
+function processYoloOutput(outputTensor) {
+    if (!outputTensor || !outputTensor.data || !outputTensor.dims) return;
 
-    // 1. Quét tìm Bounding Box có độ tin cậy cao nhất (Hạ ngưỡng xuống 0.10)
-    for (let i = 0; i < 8400; i++) {
-        const score = data[4 * 8400 + i];
-        if (score > maxScore && score > 0.10) {
-            maxScore = score;
-            bestIdx = i;
+    const data = outputTensor.data;
+    const dims = outputTensor.dims;
+
+    let numChannels = 56;
+    let numAnchors = 8400;
+    let isChannelsFirst = true;
+
+    // Phân tích ma trận tự động
+    if (dims.length === 3) {
+        if (dims[1] === 8400 || dims[1] > dims[2]) {
+            numAnchors = dims[1];
+            numChannels = dims[2];
+            isChannelsFirst = false;
+        } else {
+            numChannels = dims[1];
+            numAnchors = dims[2];
+            isChannelsFirst = true;
         }
     }
 
-    if (bestIdx === -1) return; // Không thấy người vượt ngưỡng score 0.10
+    let maxScore = -1;
+    let bestIdx = -1;
 
+    // Quét tìm Bounding Box có điểm tin cậy người cao nhất
+    for (let i = 0; i < numAnchors; i++) {
+        const scoreIdx = isChannelsFirst ? (4 * numAnchors + i) : (i * numChannels + 4);
+        const score = data[scoreIdx];
+
+        if (score > maxScore) {
+            maxScore = score;
+            if (score > 0.05) { // Ngưỡng nhạy 0.05
+                bestIdx = i;
+            }
+        }
+    }
+
+    if (bestIdx === -1) return;
+
+    // Trích xuất điểm Keypoint theo dạng ma trận chuẩn
     const getKP = (kpIdx) => {
-        const offset = 5 + kpIdx * 3;
-        return {
-            x: data[offset * 8400 + bestIdx],
-            y: data[(offset + 1) * 8400 + bestIdx],
-            conf: data[(offset + 2) * 8400 + bestIdx]
-        };
+        const channelX = 5 + kpIdx * 3;
+        const channelY = 5 + kpIdx * 3 + 1;
+        const channelConf = 5 + kpIdx * 3 + 2;
+
+        let x, y, conf;
+        if (isChannelsFirst) {
+            x = data[channelX * numAnchors + bestIdx];
+            y = data[channelY * numAnchors + bestIdx];
+            conf = data[channelConf * numAnchors + bestIdx];
+        } else {
+            x = data[bestIdx * numChannels + channelX];
+            y = data[bestIdx * numChannels + channelY];
+            conf = data[bestIdx * numChannels + channelConf];
+        }
+        return { x, y, conf };
     };
 
     const nose = getKP(0);
@@ -404,9 +440,9 @@ function processYoloOutput(data) {
     const leftShoulder = getKP(5);
     const rightShoulder = getKP(6);
 
-    const minConf = 0.08; // Hạ ngưỡng khớp cơ thể xuống 0.08
+    const minConf = 0.03;
 
-    // 2. Tính toán khoảng cách giữa 2 mắt
+    // 1. Tính khoảng cách mắt
     let currEyeDist = 0;
     if (leftEye.conf >= minConf && rightEye.conf >= minConf) {
         currEyeDist = Math.hypot(leftEye.x - rightEye.x, leftEye.y - rightEye.y);
@@ -416,7 +452,7 @@ function processYoloOutput(data) {
         currEyeDist = Math.hypot(rightEye.x - nose.x, rightEye.y - nose.y) * 2;
     }
 
-    // 3. Tính toán vị trí và chiều rộng Vai
+    // 2. Tính vị trí & chiều rộng vai
     let currShoulderY = 0;
     let currShoulderWidth = 0;
 
@@ -428,20 +464,19 @@ function processYoloOutput(data) {
     } else if (rightShoulder.conf >= minConf) {
         currShoulderY = rightShoulder.y;
     } else if (nose.conf >= minConf) {
-        currShoulderY = nose.y + 120;
+        currShoulderY = nose.y + 100;
     }
 
-    // 4. CƠ CHẾ FALLBACK: Ước tính nếu 1 trong 2 thông số bị thiếu
+    // 3. Cơ chế bù trừ (Fallback)
     if (currEyeDist === 0 && currShoulderWidth > 0) {
         currEyeDist = currShoulderWidth / 2.5;
     } else if (currShoulderWidth === 0 && currEyeDist > 0) {
         currShoulderWidth = currEyeDist * 2.5;
     }
 
-    // Nếu cả 2 đều bằng 0 mới bỏ qua frame này
     if (currEyeDist === 0 && currShoulderWidth === 0) return;
 
-    // 5. Làm mượt chỉ số bằng Moving Average
+    // 4. Làm mượt tín hiệu (Moving Average)
     if (smoothedEyeDist === 0) {
         smoothedEyeDist = currEyeDist;
         smoothedShoulderY = currShoulderY;
@@ -452,7 +487,7 @@ function processYoloOutput(data) {
         smoothedShoulderWidth = smoothedShoulderWidth * 0.75 + currShoulderWidth * 0.25;
     }
 
-    // Cập nhật lên UI
+    // Cập nhật thông số lên UI
     const eyeEl = document.getElementById('metric_eye');
     const shoulderEl = document.getElementById('metric_shoulder');
     if (eyeEl) eyeEl.innerText = `${Math.round(smoothedEyeDist)} px`;
@@ -460,7 +495,7 @@ function processYoloOutput(data) {
 
     if (!isCalibrated) return;
 
-    // 6. Kiểm tra tư thế sau khi đã Calibrate
+    // 5. Đánh giá tư thế
     const currentRatio = smoothedEyeDist / (smoothedShoulderWidth || 1);
     const baselineRatio = baselineEyeDist / (baselineShoulderWidth || 1);
 
@@ -502,7 +537,6 @@ if (btnCalibrate) {
 
         smoothedEyeDist = 0;
 
-        // Chờ 2.5 giây để webcam & AI quét lấy dữ liệu chuẩn
         await new Promise((resolve) => setTimeout(resolve, 2500));
 
         if (smoothedEyeDist > 0) {
@@ -659,5 +693,5 @@ if (btnTimerReset) {
     });
 }
 
-// Khởi chạy timer ban đầu
+// Khởi tạo hiển thị đồng hồ Pomodoro
 updateTimerDisplay();
