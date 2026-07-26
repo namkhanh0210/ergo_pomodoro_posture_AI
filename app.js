@@ -3,17 +3,70 @@ const resultImage = document.getElementById('result-image');
 const statusDisplay = document.getElementById('status-display');
 const btnCalibrate = document.getElementById('btn-calibrate');
 
+const btnSkip = document.getElementById('btn-skip');
+const btnUpload = document.getElementById('btn-upload');
+const fileInput = document.getElementById('file-input');
+const userHeightInput = document.getElementById('user-height');
+const stepAssessment = document.getElementById('step-assessment');
+const stepMonitor = document.getElementById('step-monitor');
+
 let isProcessing = false;
 let isCalibration = false;
 let baselineEyeDist = 0.0;
 let baselineShoulderY = 0.0;
 
-const API_URL = '/api/analyze_frame';
+const API_ANALYZE = '/api/analyze_frame';
+const API_ASSESS = '/api/assess_desk';
+
+function goToMonitorStep() {
+    if (stepAssessment) stepAssessment.style.display = 'none';
+    if (stepMonitor) stepMonitor.style.display = 'block';
+    initWebcam();
+}
+
+if (btnSkip) {
+    btnSkip.addEventListener('click', (e) => {
+        e.preventDefault();
+        goToMonitorStep();
+    });
+}
+
+if (btnUpload && fileInput) {
+    btnUpload.addEventListener('click', (e) => {
+        e.preventDefault();
+        fileInput.click();
+    });
+
+    fileInput.addEventListener('change', async () => {
+        if (fileInput.files.length === 0) return;
+
+        const formData = new FormData();
+        formData.append('file', fileInput.files[0]);
+        formData.append('user_height', userHeightInput ? userHeightInput.value : 170);
+
+        try {
+            if (statusDisplay) statusDisplay.innerText = "Analyzing desk...";
+            const response = await fetch(API_ASSESS, {
+                method: 'POST',
+                body: formData
+            });
+            const data = await response.json();
+            console.log("Assessment Result:", data);
+
+            goToMonitorStep();
+        } catch (err) {
+            alert("Upload failed. Please try again.");
+        }
+    });
+}
 
 async function initWebcam() {
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: true });
         video.srcObject = stream;
+        video.addEventListener('loadeddata', () => {
+            setInterval(processFrame, 2000);
+        }, { once: true });
     } catch (err) {
         alert("Webcam access denied or unavailable.");
     }
@@ -32,7 +85,7 @@ function captureCompressedBase64() {
 }
 
 async function processFrame() {
-    if (isProcessing || video.videoWidth === 0) return;
+    if (isProcessing || !video || video.videoWidth === 0) return;
     
     isProcessing = true;
     
@@ -46,7 +99,7 @@ async function processFrame() {
             baseline_shoulder_y: baselineShoulderY
         };
 
-        const response = await fetch(API_URL, {
+        const response = await fetch(API_ANALYZE, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json'
@@ -76,21 +129,16 @@ async function processFrame() {
         }
 
     } catch (error) {
-        statusDisplay.innerText = "Connection error";
+        if (statusDisplay) statusDisplay.innerText = "Connection error";
     } finally {
         isProcessing = false;
     }
 }
 
 if (btnCalibrate) {
-    btnCalibrate.addEventListener('click', () => {
+    btnCalibrate.addEventListener('click', (e) => {
+        e.preventDefault();
         isCalibration = true;
         statusDisplay.innerText = "Calibrating...";
     });
 }
-
-initWebcam().then(() => {
-    video.addEventListener('loadeddata', () => {
-        setInterval(processFrame, 2000);
-    });
-});
