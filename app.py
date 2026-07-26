@@ -150,15 +150,22 @@ def read_root():
     return {"status": "online", "message": "ErgoAI Production Backend is running!"}
 
 @app.post("/api/assess_desk")
-def assess_desk(
+async def assess_desk(
     file: UploadFile = File(...),
     user_height: float = Form(170.0),
     fatigue_level: int = Form(30),
     custom_notes: str = Form("")
 ):
-    contents = file.file.read()
+    contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+
+    if img_bgr is None:
+        return {
+            "feedback": "### Lỗi: Định dạng ảnh không hợp lệ.\n\nVui lòng upload file ảnh chuẩn (JPG, PNG).",
+            "processed_image": "",
+            "audio_base64": ""
+        }
 
     annotated_bgr, violations, score = process_single_image(img_bgr, user_height)
     
