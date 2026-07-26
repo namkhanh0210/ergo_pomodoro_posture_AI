@@ -1,3 +1,6 @@
+// ==========================================
+// 1. KHỞI TẠO BIẾN & PHẦN TỬ DOM
+// ==========================================
 const sectionDesk = document.getElementById('desk_assessment_section');
 const sectionWorkspace = document.getElementById('main_workspace_section');
 const navStep1 = document.getElementById('nav_step1');
@@ -36,11 +39,15 @@ let badPostureStartTime = 0;
 let goodPostureStartTime = 0;
 let isWarningActive = false;
 
+// Canvas ẩn dùng cho việc xử lý YOLO Frame
 const yoloCanvas = document.createElement('canvas');
 yoloCanvas.width = 640;
 yoloCanvas.height = 640;
 const yoloCtx = yoloCanvas.getContext('2d', { willReadFrequently: true });
 
+// ==========================================
+// 2. HÀM XỬ LÝ ẢNH & CHUYỂN BƯỚC UI
+// ==========================================
 function compressImage(file, maxWidth = 800, quality = 0.6) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -136,6 +143,9 @@ window.goToMainWorkspace = async function () {
     }
 };
 
+// ==========================================
+// 3. EVENT LISTENERS SETUP BÀN LÀM VIỆC
+// ==========================================
 if (deskFileInput) {
     deskFileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -237,6 +247,9 @@ if (btnAnalyzeFrame) {
     });
 }
 
+// ==========================================
+// 4. CHỨC NĂNG WEBCAM & ONNX YOLO POSE
+// ==========================================
 async function startWebcam() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         alert("Your browser does not support camera access or requires HTTPS.");
@@ -286,12 +299,14 @@ async function initYoloONNX() {
         sessionONNX = await ort.InferenceSession.create(MODEL_PATH, {
             executionProviders: ['wasm']
         });
+        console.log("✅ [ONNX Loaded] Inputs:", sessionONNX.inputNames, "Outputs:", sessionONNX.outputNames);
         if (statusEl) {
             statusEl.innerText = "YOLO READY (CALIBRATE REQUIRED)";
             statusEl.className = "font-bold text-primary tracking-wide";
         }
         return true;
     } catch (err) {
+        console.error("❌ [ONNX Load Error]:", err);
         if (statusEl) {
             statusEl.innerText = "MODEL LOAD ERROR";
             statusEl.className = "font-bold text-error tracking-wide";
@@ -301,7 +316,7 @@ async function initYoloONNX() {
 }
 
 function preprocessWebcamToTensor() {
-    if (!webcam || webcam.readyState !== 4) return null;
+    if (!webcam || webcam.readyState < 2 || webcam.videoWidth === 0) return null;
 
     yoloCtx.drawImage(webcam, 0, 0, 640, 640);
     const imageData = yoloCtx.getImageData(0, 0, 640, 640);
@@ -310,9 +325,9 @@ function preprocessWebcamToTensor() {
     const float32Data = new Float32Array(1 * 3 * 640 * 640);
 
     for (let i = 0; i < 640 * 640; i++) {
-        float32Data[i] = data[i * 4] / 255.0;
-        float32Data[640 * 640 + i] = data[i * 4 + 1] / 255.0;
-        float32Data[2 * 640 * 640 + i] = data[i * 4 + 2] / 255.0;
+        float32Data[i] = data[i * 4] / 255.0;               // R
+        float32Data[640 * 640 + i] = data[i * 4 + 1] / 255.0; // G
+        float32Data[2 * 640 * 640 + i] = data[i * 4 + 2] / 255.0; // B
     }
 
     return new ort.Tensor('float32', float32Data, [1, 3, 640, 640]);
@@ -325,15 +340,25 @@ function startPostureAI() {
     async function monitorLoop() {
         if (!isMonitoring) return;
 
-        if (sessionONNX && webcam && webcam.readyState === 4) {
+        if (sessionONNX && webcam && webcam.readyState >= 2) {
             const inputTensor = preprocessWebcamToTensor();
             if (inputTensor) {
                 try {
-                    const results = await sessionONNX.run({ images: inputTensor });
+                    // Dùng linh hoạt tên input layer thay vì gán cứng 'images'
+                    const inputName = sessionONNX.inputNames[0];
+                    const feeds = {};
+                    feeds[inputName] = inputTensor;
+
+                    const results = await sessionONNX.run(feeds);
                     const outputName = sessionONNX.outputNames[0];
                     const outputTensor = results[outputName];
-                    processYoloOutput(outputTensor.data);
-                } catch (e) {}
+
+                    if (outputTensor && outputTensor.data) {
+                        processYoloOutput(outputTensor.data);
+                    }
+                } catch (e) {
+                    console.error("⚠️ [ONNX Execution Error]:", e);
+                }
             }
         }
 
@@ -353,15 +378,16 @@ function processYoloOutput(data) {
     let maxScore = -1;
     let bestIdx = -1;
 
+    // 1. Quét tìm Bounding Box có độ tin cậy cao nhất (Hạ ngưỡng xuống 0.10)
     for (let i = 0; i < 8400; i++) {
         const score = data[4 * 8400 + i];
-        if (score > maxScore && score > 0.20) {
+        if (score > maxScore && score > 0.10) {
             maxScore = score;
             bestIdx = i;
         }
     }
 
-    if (bestIdx === -1) return;
+    if (bestIdx === -1) return; // Không thấy người vượt ngưỡng score 0.10
 
     const getKP = (kpIdx) => {
         const offset = 5 + kpIdx * 3;
@@ -378,8 +404,9 @@ function processYoloOutput(data) {
     const leftShoulder = getKP(5);
     const rightShoulder = getKP(6);
 
-    const minConf = 0.15;
+    const minConf = 0.08; // Hạ ngưỡng khớp cơ thể xuống 0.08
 
+    // 2. Tính toán khoảng cách giữa 2 mắt
     let currEyeDist = 0;
     if (leftEye.conf >= minConf && rightEye.conf >= minConf) {
         currEyeDist = Math.hypot(leftEye.x - rightEye.x, leftEye.y - rightEye.y);
@@ -389,8 +416,7 @@ function processYoloOutput(data) {
         currEyeDist = Math.hypot(rightEye.x - nose.x, rightEye.y - nose.y) * 2;
     }
 
-    if (currEyeDist === 0) return;
-
+    // 3. Tính toán vị trí và chiều rộng Vai
     let currShoulderY = 0;
     let currShoulderWidth = 0;
 
@@ -399,15 +425,23 @@ function processYoloOutput(data) {
         currShoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
     } else if (leftShoulder.conf >= minConf) {
         currShoulderY = leftShoulder.y;
-        currShoulderWidth = currEyeDist * 2.5;
     } else if (rightShoulder.conf >= minConf) {
         currShoulderY = rightShoulder.y;
-        currShoulderWidth = currEyeDist * 2.5;
     } else if (nose.conf >= minConf) {
         currShoulderY = nose.y + 120;
+    }
+
+    // 4. CƠ CHẾ FALLBACK: Ước tính nếu 1 trong 2 thông số bị thiếu
+    if (currEyeDist === 0 && currShoulderWidth > 0) {
+        currEyeDist = currShoulderWidth / 2.5;
+    } else if (currShoulderWidth === 0 && currEyeDist > 0) {
         currShoulderWidth = currEyeDist * 2.5;
     }
 
+    // Nếu cả 2 đều bằng 0 mới bỏ qua frame này
+    if (currEyeDist === 0 && currShoulderWidth === 0) return;
+
+    // 5. Làm mượt chỉ số bằng Moving Average
     if (smoothedEyeDist === 0) {
         smoothedEyeDist = currEyeDist;
         smoothedShoulderY = currShoulderY;
@@ -418,6 +452,7 @@ function processYoloOutput(data) {
         smoothedShoulderWidth = smoothedShoulderWidth * 0.75 + currShoulderWidth * 0.25;
     }
 
+    // Cập nhật lên UI
     const eyeEl = document.getElementById('metric_eye');
     const shoulderEl = document.getElementById('metric_shoulder');
     if (eyeEl) eyeEl.innerText = `${Math.round(smoothedEyeDist)} px`;
@@ -425,6 +460,7 @@ function processYoloOutput(data) {
 
     if (!isCalibrated) return;
 
+    // 6. Kiểm tra tư thế sau khi đã Calibrate
     const currentRatio = smoothedEyeDist / (smoothedShoulderWidth || 1);
     const baselineRatio = baselineEyeDist / (baselineShoulderWidth || 1);
 
@@ -442,6 +478,9 @@ function processYoloOutput(data) {
     handlePostureStatus(isBadPosture, statusText);
 }
 
+// ==========================================
+// 5. XỬ LÝ CALIBRATE TƯ THẾ
+// ==========================================
 if (btnCalibrate) {
     btnCalibrate.addEventListener('click', async () => {
         const statusEl = document.getElementById('posture_status');
@@ -455,7 +494,7 @@ if (btnCalibrate) {
         startPostureAI();
 
         btnCalibrate.disabled = true;
-        btnCalibrate.innerText = "Scanning (2s)...";
+        btnCalibrate.innerText = "Scanning (2.5s)...";
         if (statusEl) {
             statusEl.innerText = "SCANNING FOR PERSON...";
             statusEl.className = "font-bold text-amber-500 tracking-wide animate-pulse";
@@ -463,7 +502,8 @@ if (btnCalibrate) {
 
         smoothedEyeDist = 0;
 
-        await new Promise((resolve) => setTimeout(resolve, 2000));
+        // Chờ 2.5 giây để webcam & AI quét lấy dữ liệu chuẩn
+        await new Promise((resolve) => setTimeout(resolve, 2500));
 
         if (smoothedEyeDist > 0) {
             baselineEyeDist = smoothedEyeDist;
@@ -488,6 +528,9 @@ if (btnCalibrate) {
     });
 }
 
+// ==========================================
+// 6. CẢNH BÁO TƯ THẾ XẤU (POSTURE WARNING)
+// ==========================================
 function handlePostureStatus(isBadPosture, statusMessage) {
     const now = Date.now();
     const statusEl = document.getElementById('posture_status');
@@ -544,6 +587,9 @@ function hideWarningUI(statusEl) {
     }
 }
 
+// ==========================================
+// 7. POMODORO TIMER LOGIC
+// ==========================================
 let timerInterval = null;
 const TOTAL_SECONDS = 25 * 60;
 let timeLeft = TOTAL_SECONDS;
@@ -613,4 +659,5 @@ if (btnTimerReset) {
     });
 }
 
+// Khởi chạy timer ban đầu
 updateTimerDisplay();
