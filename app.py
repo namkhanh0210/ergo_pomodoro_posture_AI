@@ -29,7 +29,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Load ONNX Sessions (Dùng rất ít RAM)
 desk_session = None
 pose_session = None
 
@@ -109,7 +108,7 @@ def run_desk_onnx(img, conf_thresh=0.25):
     input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: input_tensor})[0]
 
-    outputs = outputs[0].T  # Shape: [N, 84]
+    outputs = outputs[0].T
     boxes = outputs[:, :4]
     scores = outputs[:, 4:]
     class_ids = np.argmax(scores, axis=1)
@@ -238,7 +237,7 @@ async def assess_desk(
 
 def run_pose_onnx(img):
     h_orig, w_orig = img.shape[:2]
-    img_resized = cv2.resize(img, (256, 256))
+    img_resized = cv2.resize(img, (640, 640))
     img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
     input_tensor = img_rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
     input_tensor = np.expand_dims(input_tensor, axis=0)
@@ -247,17 +246,18 @@ def run_pose_onnx(img):
     input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: input_tensor})[0]
 
-    outputs = outputs[0].T  # [N, 56]
+    outputs = outputs[0].T
     box_confs = outputs[:, 4]
     best_idx = np.argmax(box_confs)
-    if box_confs[best_idx] < 0.3:
+    
+    if box_confs[best_idx] < 0.20:
         return None, None
 
     best_pred = outputs[best_idx]
     kpts = best_pred[5:].reshape(17, 3)
 
-    kpts[:, 0] = (kpts[:, 0] / 256.0) * w_orig
-    kpts[:, 1] = (kpts[:, 1] / 256.0) * h_orig
+    kpts[:, 0] = (kpts[:, 0] / 640.0) * w_orig
+    kpts[:, 1] = (kpts[:, 1] / 640.0) * h_orig
     return kpts[:, :2], kpts[:, 2]
 
 @app.post("/api/analyze_frame")
@@ -282,25 +282,32 @@ def analyze_frame(data: ImageData):
         is_bad_posture = False
 
         if kpts is not None and len(kpts) >= 7:
+            nose = kpts[0]
             left_eye, right_eye = kpts[1], kpts[2]
             left_shoulder, right_shoulder = kpts[5], kpts[6]
-            CONF_THRESHOLD = 0.3
+            CONF_THRESHOLD = 0.15
 
-            if (confs[1] > CONF_THRESHOLD and confs[2] > CONF_THRESHOLD and
-                confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD):
-
+            if confs[1] > CONF_THRESHOLD and confs[2] > CONF_THRESHOLD:
                 current_eye_dist = calculate_distance(left_eye, right_eye)
-                current_shoulder_y = float((left_shoulder[1] + right_shoulder[1]) / 2)
+            elif confs[0] > CONF_THRESHOLD and confs[1] > CONF_THRESHOLD:
+                current_eye_dist = calculate_distance(nose, left_eye) * 2
+            elif confs[0] > CONF_THRESHOLD and confs[2] > CONF_THRESHOLD:
+                current_eye_dist = calculate_distance(nose, right_eye) * 2
 
-                shoulder_tilt = abs(left_shoulder[1] - right_shoulder[1])
-                eye_tilt = abs(left_eye[1] - right_eye[1])
+            if confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD:
+                current_shoulder_y = float((left_shoulder[1] + right_shoulder[1]) / 2)
+            elif confs[5] > CONF_THRESHOLD:
+                current_shoulder_y = float(left_shoulder[1])
+            elif confs[6] > CONF_THRESHOLD:
+                current_shoulder_y = float(right_shoulder[1])
+            elif confs[0] > CONF_THRESHOLD:
+                current_shoulder_y = float(nose[1] + 100)
+
+            if current_eye_dist > 0:
+                shoulder_tilt = abs(left_shoulder[1] - right_shoulder[1]) if (confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD) else 0
 
                 if data.is_calibration:
-                    if current_eye_dist > 60:
-                        status = "Error: Too CLOSE! Move back 50-70cm and recalibrate."
-                    elif current_eye_dist < 30:
-                        status = "Error: Too FAR! Move closer 50-70cm and recalibrate."
-                    elif shoulder_tilt > 12:
+                    if shoulder_tilt > 25:
                         status = "Error: SHOULDERS TILTED! Please sit straight."
                     else:
                         status = "Success: Standard posture saved!"
@@ -310,10 +317,10 @@ def analyze_frame(data: ImageData):
                     if data.baseline_eye_dist > 0 and current_eye_dist > (data.baseline_eye_dist * 1.25):
                         status = "Warning: Too close to screen!"
                         is_bad_posture = True
-                    elif data.baseline_shoulder_y > 0 and current_shoulder_y > (data.baseline_shoulder_y + 15):
+                    elif data.baseline_shoulder_y > 0 and current_shoulder_y > (data.baseline_shoulder_y + 20):
                         status = "Warning: Bad posture (Slouching)!"
                         is_bad_posture = True
-                    elif shoulder_tilt > 18 or eye_tilt > 15:
+                    elif shoulder_tilt > 20:
                         status = "Warning: Bad posture (Leaning)!"
                         is_bad_posture = True
                     else:
@@ -323,8 +330,9 @@ def analyze_frame(data: ImageData):
                 cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
                 cv2.circle(img, (int(left_eye[0]), int(left_eye[1])), 4, (255, 0, 0), -1)
                 cv2.circle(img, (int(right_eye[0]), int(right_eye[1])), 4, (255, 0, 0), -1)
-                cv2.line(img, (int(left_shoulder[0]), int(left_shoulder[1])), 
-                              (int(right_shoulder[0]), int(right_shoulder[1])), (0, 255, 0), 2)
+                if confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD:
+                    cv2.line(img, (int(left_shoulder[0]), int(left_shoulder[1])), 
+                             (int(right_shoulder[0]), int(right_shoulder[1])), (0, 255, 0), 2)
 
         _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 50])
         processed_base64 = base64.b64encode(buffer).decode('utf-8')
