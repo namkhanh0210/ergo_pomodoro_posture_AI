@@ -30,8 +30,8 @@ let goodPostureStartTime = 0;
 let isWarningActive = false;
 
 const captureCanvas = document.createElement('canvas');
-captureCanvas.width = 320;
-captureCanvas.height = 240;
+captureCanvas.width = 240;
+captureCanvas.height = 180;
 const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
 
 function compressImage(file, maxWidth = 800, quality = 0.6) {
@@ -234,7 +234,7 @@ async function startWebcam() {
     if (webcam && !webcam.srcObject) {
         try {
             const stream = await navigator.mediaDevices.getUserMedia({ 
-                video: { width: { ideal: 480 }, height: { ideal: 360 } } 
+                video: { width: { ideal: 320 }, height: { ideal: 240 } } 
             });
             webcam.srcObject = stream;
             await new Promise((resolve) => {
@@ -265,7 +265,7 @@ function stopWebcam() {
 function captureWebcamBase64() {
     if (!webcam || !webcam.srcObject || webcam.readyState !== 4) return null;
     captureCtx.drawImage(webcam, 0, 0, captureCanvas.width, captureCanvas.height);
-    return captureCanvas.toDataURL('image/jpeg', 0.35);
+    return captureCanvas.toDataURL('image/jpeg', 0.25);
 }
 
 async function sendImageToAPI(base64Image, isCalibration) {
@@ -373,7 +373,7 @@ function startPostureAI() {
         }
 
         if (isMonitoring) {
-            setTimeout(monitorLoop, 800);
+            setTimeout(monitorLoop, 50);
         }
     }
 
