@@ -97,7 +97,10 @@ def get_voice_base64(text: str, lang='en') -> str:
             return ""
     return AUDIO_CACHE[cache_key]
 
-def run_desk_onnx(img, conf_thresh=0.25):
+# ==========================================
+# RUN DESK DETECT (TỰ ĐỘNG CHUYỂN VỊ SHAPE TENSOR)
+# ==========================================
+def run_desk_onnx(img, conf_thresh=0.20):
     h_orig, w_orig = img.shape[:2]
     img_resized = cv2.resize(img, (480, 480))
     img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
@@ -108,9 +111,13 @@ def run_desk_onnx(img, conf_thresh=0.25):
     input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: input_tensor})[0]
 
-    outputs = outputs[0].T
-    boxes = outputs[:, :4]
-    scores = outputs[:, 4:]
+    out = outputs[0]
+    # Tự động điều chỉnh shape về [Anchors, Channels]
+    if out.shape[0] < out.shape[1]:
+        out = out.T
+
+    boxes = out[:, :4]
+    scores = out[:, 4:]
     class_ids = np.argmax(scores, axis=1)
     confidences = np.max(scores, axis=1)
 
@@ -135,7 +142,7 @@ def process_single_image(img, user_height):
     h_img, w_img, _ = img.shape
     img_out = img.copy()
 
-    object_coords = run_desk_onnx(img_out, conf_thresh=0.25)
+    object_coords = run_desk_onnx(img_out, conf_thresh=0.20)
 
     x_origin, y_origin, w_origin_px = 0, 0, 0
     if 'laptop' in object_coords:
@@ -235,6 +242,9 @@ async def assess_desk(
     finally:
         gc.collect()
 
+# ==========================================
+# RUN POSE DETECT (TỰ ĐỘNG CHUYỂN VỊ & HẠ NGƯỠNG CONF)
+# ==========================================
 def run_pose_onnx(img):
     h_orig, w_orig = img.shape[:2]
     img_resized = cv2.resize(img, (640, 640))
@@ -246,14 +256,20 @@ def run_pose_onnx(img):
     input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: input_tensor})[0]
 
-    outputs = outputs[0].T
-    box_confs = outputs[:, 4]
+    out = outputs[0]
+    
+    # Kiểm tra và xoay Ma trận linh hoạt theo Shape thực tế
+    if out.shape[0] < out.shape[1]: 
+        out = out.T  # Đưa về dạng [8400, 56]
+
+    box_confs = out[:, 4]
     best_idx = np.argmax(box_confs)
     
-    if box_confs[best_idx] < 0.20:
+    # Hạ ngưỡng điểm tin cậy xuống 0.05 để cực kỳ nhạy với webcam nén
+    if box_confs[best_idx] < 0.05:
         return None, None
 
-    best_pred = outputs[best_idx]
+    best_pred = out[best_idx]
     kpts = best_pred[5:].reshape(17, 3)
 
     kpts[:, 0] = (kpts[:, 0] / 640.0) * w_orig
@@ -285,7 +301,7 @@ def analyze_frame(data: ImageData):
             nose = kpts[0]
             left_eye, right_eye = kpts[1], kpts[2]
             left_shoulder, right_shoulder = kpts[5], kpts[6]
-            CONF_THRESHOLD = 0.15
+            CONF_THRESHOLD = 0.03  # Hạ ngưỡng điểm khớp cơ thể
 
             if confs[1] > CONF_THRESHOLD and confs[2] > CONF_THRESHOLD:
                 current_eye_dist = calculate_distance(left_eye, right_eye)
