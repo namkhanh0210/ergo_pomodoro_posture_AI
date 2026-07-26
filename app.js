@@ -20,6 +20,7 @@ const BACKEND_URL = "https://ergo-pomodoro-posture-ai.onrender.com";
 
 let isStep1Completed = false;
 let isMonitoring = false;
+let isProcessingFrame = false; // Biến khóa luồng gửi request
 
 let baselineEyeDist = 0;
 let baselineShoulderY = 0;
@@ -79,7 +80,7 @@ window.goToMainWorkspace = async function () {
     await startWebcam();
 };
 
-// XỬ LÝ SỰ KIỆN UPLOAD ẢNH BÀN LÀM VIỆC VÀ GỌI API THẬT /api/assess_desk
+// UPLOAD ẢNH BÀN LÀM VIỆC & API /api/assess_desk
 if (deskFileInput) {
     deskFileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -181,7 +182,10 @@ async function startWebcam() {
 
     if (webcam && !webcam.srcObject) {
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+            // Khởi tạo Webcam ở độ phân giải 640x480 để tiết kiệm RAM
+            const stream = await navigator.mediaDevices.getUserMedia({ 
+                video: { width: { ideal: 640 }, height: { ideal: 480 } } 
+            });
             webcam.srcObject = stream;
 
             await new Promise((resolve) => {
@@ -212,13 +216,14 @@ function stopWebcam() {
 }
 
 function captureWebcamBase64() {
-    if (!webcam || !webcam.srcObject) return null;
+    if (!webcam || !webcam.srcObject || webcam.readyState !== 4) return null;
     const canvas = document.createElement('canvas');
-    canvas.width = webcam.videoWidth || 640;
-    canvas.height = webcam.videoHeight || 480;
+    canvas.width = 640;
+    canvas.height = 480;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(webcam, 0, 0, canvas.width, canvas.height);
-    return canvas.toDataURL('image/jpeg', 0.7);
+    // Nén ảnh chất lượng 0.6 để tải nhanh hơn
+    return canvas.toDataURL('image/jpeg', 0.6);
 }
 
 async function sendImageToAPI(base64Image, isCalibration) {
@@ -233,6 +238,11 @@ async function sendImageToAPI(base64Image, isCalibration) {
                 baseline_shoulder_y: baselineShoulderY
             })
         });
+
+        if (!response.ok) {
+            return null;
+        }
+
         return await response.json();
     } catch (error) {
         console.error("API Error:", error);
@@ -299,16 +309,23 @@ function startPostureAI() {
     async function monitorLoop() {
         if (!isMonitoring) return;
 
-        const base64Img = captureWebcamBase64();
-        if (base64Img) {
-            const apiData = await sendImageToAPI(base64Img, false);
-            if (apiData && isMonitoring) {
-                handleAPIResponse(apiData);
+        // Bỏ qua nếu frame trước vẫn chưa nhận phản hồi
+        if (!isProcessingFrame) {
+            isProcessingFrame = true;
+            const base64Img = captureWebcamBase64();
+            
+            if (base64Img) {
+                const apiData = await sendImageToAPI(base64Img, false);
+                if (apiData && isMonitoring) {
+                    handleAPIResponse(apiData);
+                }
             }
+            isProcessingFrame = false;
         }
 
         if (isMonitoring) {
-            setTimeout(monitorLoop, 1000);
+            // Tăng thời gian chờ lên 2.5 giây/lần kiểm tra
+            setTimeout(monitorLoop, 2500);
         }
     }
 
@@ -317,6 +334,7 @@ function startPostureAI() {
 
 function stopPostureAI() {
     isMonitoring = false;
+    isProcessingFrame = false;
 }
 
 function handleAPIResponse(response) {
@@ -389,6 +407,7 @@ function hideWarningUI(statusEl) {
     }
 }
 
+// POMODORO TIMER LOGIC
 let timerInterval = null;
 const TOTAL_SECONDS = 25 * 60;
 let timeLeft = TOTAL_SECONDS;
