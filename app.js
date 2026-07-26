@@ -22,6 +22,10 @@ const btnCalibrate = document.getElementById('btn_calibrate');
 const BACKEND_URL = "https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev";
 const MODEL_PATH = "./yolov8n-pose.onnx";
 
+// Cấu hình kích thước YOLO Model & Bộ nhớ đệm chống tràn RAM
+const MODEL_SIZE = 256;
+const inputFloat32Array = new Float32Array(1 * 3 * MODEL_SIZE * MODEL_SIZE);
+
 let isStep1Completed = false;
 let isMonitoring = false;
 let sessionONNX = null;
@@ -39,10 +43,10 @@ let badPostureStartTime = 0;
 let goodPostureStartTime = 0;
 let isWarningActive = false;
 
-// Canvas ẩn dùng xử lý YOLO Frame
+// Canvas ẩn dùng xử lý YOLO Frame (256x256)
 const yoloCanvas = document.createElement('canvas');
-yoloCanvas.width = 640;
-yoloCanvas.height = 640;
+yoloCanvas.width = MODEL_SIZE;
+yoloCanvas.height = MODEL_SIZE;
 const yoloCtx = yoloCanvas.getContext('2d', { willReadFrequently: true });
 
 // ==========================================
@@ -248,7 +252,7 @@ if (btnAnalyzeFrame) {
 }
 
 // ==========================================
-// 4. CHỨC NĂNG WEBCAM & ONNX YOLO POSE
+// 4. CHỨC NĂNG WEBCAM & ONNX YOLO POSE (TỐI ƯU BỘ NHỚ)
 // ==========================================
 async function startWebcam() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -315,22 +319,24 @@ async function initYoloONNX() {
     }
 }
 
+// Hàm Tiền Xử Lý Tái Sử Dụng Buffer (Tuyệt Đối Không Gây Tràn RAM)
 function preprocessWebcamToTensor() {
     if (!webcam || webcam.readyState < 2 || webcam.videoWidth === 0) return null;
 
-    yoloCtx.drawImage(webcam, 0, 0, 640, 640);
-    const imageData = yoloCtx.getImageData(0, 0, 640, 640);
+    yoloCtx.drawImage(webcam, 0, 0, MODEL_SIZE, MODEL_SIZE);
+    const imageData = yoloCtx.getImageData(0, 0, MODEL_SIZE, MODEL_SIZE);
     const data = imageData.data;
 
-    const float32Data = new Float32Array(1 * 3 * 640 * 640);
+    const area = MODEL_SIZE * MODEL_SIZE;
 
-    for (let i = 0; i < 640 * 640; i++) {
-        float32Data[i] = data[i * 4] / 255.0;               // R
-        float32Data[640 * 640 + i] = data[i * 4 + 1] / 255.0; // G
-        float32Data[2 * 640 * 640 + i] = data[i * 4 + 2] / 255.0; // B
+    // Ghi trực tiếp vào Float32Array cố định đã khai báo toàn cục
+    for (let i = 0; i < area; i++) {
+        inputFloat32Array[i]            = data[i * 4]     / 255.0; // R
+        inputFloat32Array[area + i]     = data[i * 4 + 1] / 255.0; // G
+        inputFloat32Array[2 * area + i] = data[i * 4 + 2] / 255.0; // B
     }
 
-    return new ort.Tensor('float32', float32Data, [1, 3, 640, 640]);
+    return new ort.Tensor('float32', inputFloat32Array, [1, 3, MODEL_SIZE, MODEL_SIZE]);
 }
 
 function startPostureAI() {
@@ -373,7 +379,7 @@ function stopPostureAI() {
     isMonitoring = false;
 }
 
-// XỬ LÝ MA TRẬN YOLOV8 POSE (TỰ ĐỘNG PHÁT HIỆN SHAPE [1, 56, 8400] VÀ [1, 8400, 56])
+// XỬ LÝ MA TRẬN YOLOV8 POSE (TỰ ĐỘNG PHÁT HIỆN SHAPE VỚI KÍCH THƯỚC 256x256)
 function processYoloOutput(outputTensor) {
     if (!outputTensor || !outputTensor.data || !outputTensor.dims) return;
 
@@ -381,12 +387,12 @@ function processYoloOutput(outputTensor) {
     const dims = outputTensor.dims;
 
     let numChannels = 56;
-    let numAnchors = 8400;
+    let numAnchors = 1344; // Mặc định 256x256 có 1344 anchors
     let isChannelsFirst = true;
 
     // Phân tích ma trận tự động
     if (dims.length === 3) {
-        if (dims[1] === 8400 || dims[1] > dims[2]) {
+        if (dims[1] > dims[2]) {
             numAnchors = dims[1];
             numChannels = dims[2];
             isChannelsFirst = false;
@@ -464,7 +470,7 @@ function processYoloOutput(outputTensor) {
     } else if (rightShoulder.conf >= minConf) {
         currShoulderY = rightShoulder.y;
     } else if (nose.conf >= minConf) {
-        currShoulderY = nose.y + 100;
+        currShoulderY = nose.y + 40; // Đã tỉ lệ lại theo 256x256 (100 -> 40)
     }
 
     // 3. Cơ chế bù trừ (Fallback)
@@ -505,7 +511,7 @@ function processYoloOutput(outputTensor) {
     if (currentRatio > baselineRatio * 1.2) {
         isBadPosture = true;
         statusText = "TOO CLOSE TO SCREEN";
-    } else if (smoothedShoulderY > baselineShoulderY + 20) {
+    } else if (smoothedShoulderY > baselineShoulderY + 8) { // Ngưỡng 8px tương đương 20px ở 640
         isBadPosture = true;
         statusText = "SLOUCHING DETECTED";
     }
