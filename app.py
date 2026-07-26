@@ -10,7 +10,7 @@ import onnxruntime as ort
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from gTTS import gTTS
+from gtts import gTTS
 from pydantic import BaseModel
 from PIL import Image
 
