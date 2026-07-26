@@ -355,7 +355,7 @@ function processYoloOutput(data) {
 
     for (let i = 0; i < 8400; i++) {
         const score = data[4 * 8400 + i];
-        if (score > maxScore && score > 0.45) {
+        if (score > maxScore && score > 0.20) {
             maxScore = score;
             bestIdx = i;
         }
@@ -372,18 +372,41 @@ function processYoloOutput(data) {
         };
     };
 
+    const nose = getKP(0);
     const leftEye = getKP(1);
     const rightEye = getKP(2);
     const leftShoulder = getKP(5);
     const rightShoulder = getKP(6);
 
-    if (leftEye.conf < 0.3 || rightEye.conf < 0.3 || leftShoulder.conf < 0.3 || rightShoulder.conf < 0.3) {
-        return;
+    const minConf = 0.15;
+
+    let currEyeDist = 0;
+    if (leftEye.conf >= minConf && rightEye.conf >= minConf) {
+        currEyeDist = Math.hypot(leftEye.x - rightEye.x, leftEye.y - rightEye.y);
+    } else if (nose.conf >= minConf && leftEye.conf >= minConf) {
+        currEyeDist = Math.hypot(leftEye.x - nose.x, leftEye.y - nose.y) * 2;
+    } else if (nose.conf >= minConf && rightEye.conf >= minConf) {
+        currEyeDist = Math.hypot(rightEye.x - nose.x, rightEye.y - nose.y) * 2;
     }
 
-    const currEyeDist = Math.hypot(leftEye.x - rightEye.x, leftEye.y - rightEye.y);
-    const currShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
-    const currShoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+    if (currEyeDist === 0) return;
+
+    let currShoulderY = 0;
+    let currShoulderWidth = 0;
+
+    if (leftShoulder.conf >= minConf && rightShoulder.conf >= minConf) {
+        currShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
+        currShoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+    } else if (leftShoulder.conf >= minConf) {
+        currShoulderY = leftShoulder.y;
+        currShoulderWidth = currEyeDist * 2.5;
+    } else if (rightShoulder.conf >= minConf) {
+        currShoulderY = rightShoulder.y;
+        currShoulderWidth = currEyeDist * 2.5;
+    } else if (nose.conf >= minConf) {
+        currShoulderY = nose.y + 120;
+        currShoulderWidth = currEyeDist * 2.5;
+    }
 
     if (smoothedEyeDist === 0) {
         smoothedEyeDist = currEyeDist;
