@@ -30,8 +30,8 @@ let goodPostureStartTime = 0;
 let isWarningActive = false;
 
 const captureCanvas = document.createElement('canvas');
-captureCanvas.width = 640;
-captureCanvas.height = 480;
+captureCanvas.width = 320;
+captureCanvas.height = 240;
 const captureCtx = captureCanvas.getContext('2d', { willReadFrequently: true });
 
 function compressImage(file, maxWidth = 800, quality = 0.6) {
@@ -161,6 +161,7 @@ if (deskFileInput) {
             });
 
             if (!response.ok) {
+                await response.text().catch(() => {});
                 throw new Error("Server returned status " + response.status);
             }
 
@@ -267,27 +268,31 @@ function stopWebcam() {
 function captureWebcamBase64() {
     if (!webcam || !webcam.srcObject || webcam.readyState !== 4) return null;
     captureCtx.drawImage(webcam, 0, 0, captureCanvas.width, captureCanvas.height);
-    return captureCanvas.toDataURL('image/jpeg', 0.6);
+    return captureCanvas.toDataURL('image/jpeg', 0.5);
 }
 
 async function sendImageToAPI(base64Image, isCalibration) {
     try {
+        const payload = JSON.stringify({
+            image_base64: base64Image,
+            is_calibration: isCalibration,
+            baseline_eye_dist: baselineEyeDist,
+            baseline_shoulder_y: baselineShoulderY
+        });
+
         const response = await fetch(`${BACKEND_URL}/api/analyze_frame`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                image_base64: base64Image,
-                is_calibration: isCalibration,
-                baseline_eye_dist: baselineEyeDist,
-                baseline_shoulder_y: baselineShoulderY
-            })
+            body: payload
         });
 
         if (!response.ok) {
+            await response.text().catch(() => {});
             return null;
         }
 
-        return await response.json();
+        const data = await response.json();
+        return data;
     } catch (error) {
         console.error("API Error:", error);
         return null;
@@ -308,14 +313,15 @@ if (btnCalibrate) {
             statusEl.className = "font-bold text-amber-500 tracking-wide animate-pulse";
         }
 
-        const base64Img = captureWebcamBase64();
+        let base64Img = captureWebcamBase64();
         if (!base64Img) {
             btnCalibrate.innerText = "Try Again";
             btnCalibrate.disabled = false;
             return;
         }
 
-        const apiData = await sendImageToAPI(base64Img, true);
+        let apiData = await sendImageToAPI(base64Img, true);
+        base64Img = null; 
 
         if (apiData && apiData.is_success) {
             baselineEyeDist = apiData.eye_dist;
@@ -343,6 +349,8 @@ if (btnCalibrate) {
             btnCalibrate.innerText = "Try Again";
             btnCalibrate.disabled = false;
         }
+        
+        apiData = null; 
     });
 }
 
@@ -355,14 +363,17 @@ function startPostureAI() {
 
         if (!isProcessingFrame) {
             isProcessingFrame = true;
-            const base64Img = captureWebcamBase64();
+            let base64Img = captureWebcamBase64();
             
             if (base64Img) {
-                const apiData = await sendImageToAPI(base64Img, false);
+                let apiData = await sendImageToAPI(base64Img, false);
                 if (apiData && isMonitoring) {
                     handleAPIResponse(apiData);
                 }
+                apiData = null; 
             }
+            
+            base64Img = null; 
             isProcessingFrame = false;
         }
 
