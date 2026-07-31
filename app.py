@@ -24,7 +24,7 @@ app = FastAPI(title="ErgoAI - Lightweight ONNX Backend")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -107,7 +107,8 @@ def get_voice_base64(text: str, lang='en') -> str:
             return ""
     return AUDIO_CACHE[cache_key]
 
-def run_desk_onnx(img, conf_thresh=0.20):
+# 2. Đã thêm NMS vào hàm nhận diện vật thể YOLO
+def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
     h_orig, w_orig = img.shape[:2]
     img_resized = cv2.resize(img, (480, 480))
     img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
@@ -130,17 +131,33 @@ def run_desk_onnx(img, conf_thresh=0.20):
     mask = confidences >= conf_thresh
     boxes, class_ids, confidences = boxes[mask], class_ids[mask], confidences[mask]
 
+    if len(boxes) == 0:
+        return {}
+
+    # Chuyển đổi định dạng box để áp dụng NMS
+    boxes_nms = []
+    for cx, cy, w, h in boxes:
+        x_min = int(cx - w / 2)
+        y_min = int(cy - h / 2)
+        boxes_nms.append([x_min, y_min, int(w), int(h)])
+
+    indices = cv2.dnn.NMSBoxes(boxes_nms, confidences.tolist(), conf_thresh, iou_thresh)
+
     object_coords = {}
-    for box, cls_id, conf in zip(boxes, class_ids, confidences):
-        label = COCO_CLASSES.get(cls_id, None)
-        if not label:
-            continue
-        cx, cy, w, h = box
-        cx, cy, w_px = (cx / 480.0) * w_orig, (cy / 480.0) * h_orig, (w / 480.0) * w_orig
-        
-        if label not in object_coords:
-            object_coords[label] = []
-        object_coords[label].append({'center': (cx, cy), 'width_px': w_px})
+    if len(indices) > 0:
+        indices = indices.flatten()
+        for i in indices:
+            cls_id = class_ids[i]
+            label = COCO_CLASSES.get(cls_id, None)
+            if not label:
+                continue
+            
+            cx, cy, w, h = boxes[i]
+            cx, cy, w_px = (cx / 480.0) * w_orig, (cy / 480.0) * h_orig, (w / 480.0) * w_orig
+            
+            if label not in object_coords:
+                object_coords[label] = []
+            object_coords[label].append({'center': (cx, cy), 'width_px': w_px})
 
     return object_coords
 
@@ -148,7 +165,7 @@ def process_single_image(img, user_height):
     h_img, w_img, _ = img.shape
     img_out = img.copy()
 
-    object_coords = run_desk_onnx(img_out, conf_thresh=0.20)
+    object_coords = run_desk_onnx(img_out, conf_thresh=0.25)
 
     x_origin, y_origin, w_origin_px = 0, 0, 0
     if 'laptop' in object_coords:
