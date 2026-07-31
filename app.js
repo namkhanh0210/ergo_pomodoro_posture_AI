@@ -694,13 +694,22 @@ updateTimerDisplay();
         await fetch(`${BACKEND_URL}/ping`, { method: 'GET' });
     } catch (e) {}
 })();
+let lastSpeechTime = 0;
+
 function playVoiceAlert(text) {
+    const now = Date.now();
+    if (now - lastSpeechTime < 5000) return;
+    lastSpeechTime = now;
+
     if ('speechSynthesis' in window) {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
-        utterance.lang = 'en-US';
-        utterance.rate = 1.0;
-        utterance.pitch = 1.0;
-        window.speechSynthesis.speak(utterance);
+        
+        setTimeout(() => {
+            const utterance = new SpeechSynthesisUtterance(text);
+            utterance.lang = 'en-US';
+            utterance.rate = 1.0;
+            utterance.pitch = 1.0;
+            window.speechSynthesis.speak(utterance);
+        }, 50);
     }
 }
