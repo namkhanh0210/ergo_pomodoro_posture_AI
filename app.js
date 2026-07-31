@@ -282,15 +282,8 @@ function stopWebcam() {
 async function initYoloONNX() {
     try {
         const sessionOptions = {
-            executionProviders: ['wasm'],
-            externalData: [
-                {
-                    path: 'yolov8n-pose.onnx.data',
-                    data: './yolov8n-pose.onnx.data'
-                }
-            ]
+            executionProviders: ['wasm']
         };
-
         poseSession = await ort.InferenceSession.create('./yolov8n-pose.onnx', sessionOptions);
         
         console.log("ONNX Pose Session loaded successfully!");
@@ -298,7 +291,6 @@ async function initYoloONNX() {
         console.error("Error loading ONNX model:", error);
     }
 }
-
 
 function preprocessWebcamToTensor() {
     if (!webcam || webcam.readyState < 2 || webcam.videoWidth === 0) return null;
