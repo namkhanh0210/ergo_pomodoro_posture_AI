@@ -10,7 +10,7 @@ import onnxruntime as ort
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from gttS import gTTS
+from gtts import gTTS
 from pydantic import BaseModel
 
 app = FastAPI(title="ErgoAI - Lightweight ONNX Backend")
