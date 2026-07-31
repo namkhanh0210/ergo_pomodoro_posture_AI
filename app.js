@@ -1,6 +1,3 @@
-// ==========================================
-// 1. KHỞI TẠO BIẾN & PHẦN TỬ DOM
-// ==========================================
 const sectionDesk = document.getElementById('desk_assessment_section');
 const sectionWorkspace = document.getElementById('main_workspace_section');
 const navStep1 = document.getElementById('nav_step1');
@@ -22,7 +19,7 @@ const btnCalibrate = document.getElementById('btn_calibrate');
 const BACKEND_URL = "https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev";
 const MODEL_PATH = "./yolov8n-pose.onnx";
 
-// Cấu hình kích thước YOLO Model & Bộ nhớ đệm chống tràn RAM
+
 const MODEL_SIZE = 256;
 const inputFloat32Array = new Float32Array(1 * 3 * MODEL_SIZE * MODEL_SIZE);
 
@@ -43,15 +40,12 @@ let badPostureStartTime = 0;
 let goodPostureStartTime = 0;
 let isWarningActive = false;
 
-// Canvas ẩn dùng xử lý YOLO Frame (256x256)
+
 const yoloCanvas = document.createElement('canvas');
 yoloCanvas.width = MODEL_SIZE;
 yoloCanvas.height = MODEL_SIZE;
 const yoloCtx = yoloCanvas.getContext('2d', { willReadFrequently: true });
 
-// ==========================================
-// 2. HÀM XỬ LÝ ẢNH & CHUYỂN BƯỚC UI
-// ==========================================
 function compressImage(file, maxWidth = 800, quality = 0.6) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -147,9 +141,6 @@ window.goToMainWorkspace = async function () {
     }
 };
 
-// ==========================================
-// 3. EVENT LISTENERS SETUP BÀN LÀM VIỆC
-// ==========================================
 if (deskFileInput) {
     deskFileInput.addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -251,9 +242,6 @@ if (btnAnalyzeFrame) {
     });
 }
 
-// ==========================================
-// 4. CHỨC NĂNG WEBCAM & ONNX YOLO POSE (TỐI ƯU BỘ NHỚ)
-// ==========================================
 async function startWebcam() {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         alert("Your browser does not support camera access or requires HTTPS.");
@@ -319,7 +307,7 @@ async function initYoloONNX() {
     }
 }
 
-// Hàm Tiền Xử Lý Tái Sử Dụng Buffer (Tuyệt Đối Không Gây Tràn RAM)
+
 function preprocessWebcamToTensor() {
     if (!webcam || webcam.readyState < 2 || webcam.videoWidth === 0) return null;
 
@@ -329,11 +317,11 @@ function preprocessWebcamToTensor() {
 
     const area = MODEL_SIZE * MODEL_SIZE;
 
-    // Ghi trực tiếp vào Float32Array cố định đã khai báo toàn cục
+    
     for (let i = 0; i < area; i++) {
-        inputFloat32Array[i]            = data[i * 4]     / 255.0; // R
-        inputFloat32Array[area + i]     = data[i * 4 + 1] / 255.0; // G
-        inputFloat32Array[2 * area + i] = data[i * 4 + 2] / 255.0; // B
+        inputFloat32Array[i]            = data[i * 4]     / 255.0; 
+        inputFloat32Array[area + i]     = data[i * 4 + 1] / 255.0; 
+        inputFloat32Array[2 * area + i] = data[i * 4 + 2] / 255.0; 
     }
 
     return new ort.Tensor('float32', inputFloat32Array, [1, 3, MODEL_SIZE, MODEL_SIZE]);
@@ -379,7 +367,7 @@ function stopPostureAI() {
     isMonitoring = false;
 }
 
-// XỬ LÝ MA TRẬN YOLOV8 POSE (TỰ ĐỘNG PHÁT HIỆN SHAPE VỚI KÍCH THƯỚC 256x256)
+
 function processYoloOutput(outputTensor) {
     if (!outputTensor || !outputTensor.data || !outputTensor.dims) return;
 
@@ -406,14 +394,14 @@ function processYoloOutput(outputTensor) {
     let maxScore = -1;
     let bestIdx = -1;
 
-    // Quét tìm Bounding Box có điểm tin cậy người cao nhất
+   
     for (let i = 0; i < numAnchors; i++) {
         const scoreIdx = isChannelsFirst ? (4 * numAnchors + i) : (i * numChannels + 4);
         const score = data[scoreIdx];
 
         if (score > maxScore) {
             maxScore = score;
-            if (score > 0.05) { // Ngưỡng nhạy 0.05
+            if (score > 0.05) { 
                 bestIdx = i;
             }
         }
@@ -421,7 +409,7 @@ function processYoloOutput(outputTensor) {
 
     if (bestIdx === -1) return;
 
-    // Trích xuất điểm Keypoint theo dạng ma trận chuẩn
+   
     const getKP = (kpIdx) => {
         const channelX = 5 + kpIdx * 3;
         const channelY = 5 + kpIdx * 3 + 1;
@@ -448,7 +436,7 @@ function processYoloOutput(outputTensor) {
 
     const minConf = 0.03;
 
-    // 1. Tính khoảng cách mắt
+   
     let currEyeDist = 0;
     if (leftEye.conf >= minConf && rightEye.conf >= minConf) {
         currEyeDist = Math.hypot(leftEye.x - rightEye.x, leftEye.y - rightEye.y);
@@ -458,7 +446,7 @@ function processYoloOutput(outputTensor) {
         currEyeDist = Math.hypot(rightEye.x - nose.x, rightEye.y - nose.y) * 2;
     }
 
-    // 2. Tính vị trí & chiều rộng vai
+   
     let currShoulderY = 0;
     let currShoulderWidth = 0;
 
@@ -470,10 +458,10 @@ function processYoloOutput(outputTensor) {
     } else if (rightShoulder.conf >= minConf) {
         currShoulderY = rightShoulder.y;
     } else if (nose.conf >= minConf) {
-        currShoulderY = nose.y + 40; // Đã tỉ lệ lại theo 256x256 (100 -> 40)
+        currShoulderY = nose.y + 40; 
     }
 
-    // 3. Cơ chế bù trừ (Fallback)
+
     if (currEyeDist === 0 && currShoulderWidth > 0) {
         currEyeDist = currShoulderWidth / 2.5;
     } else if (currShoulderWidth === 0 && currEyeDist > 0) {
@@ -482,7 +470,7 @@ function processYoloOutput(outputTensor) {
 
     if (currEyeDist === 0 && currShoulderWidth === 0) return;
 
-    // 4. Làm mượt tín hiệu (Moving Average)
+   
     if (smoothedEyeDist === 0) {
         smoothedEyeDist = currEyeDist;
         smoothedShoulderY = currShoulderY;
@@ -493,7 +481,7 @@ function processYoloOutput(outputTensor) {
         smoothedShoulderWidth = smoothedShoulderWidth * 0.75 + currShoulderWidth * 0.25;
     }
 
-    // Cập nhật thông số lên UI
+  
     const eyeEl = document.getElementById('metric_eye');
     const shoulderEl = document.getElementById('metric_shoulder');
     if (eyeEl) eyeEl.innerText = `${Math.round(smoothedEyeDist)} px`;
@@ -501,7 +489,7 @@ function processYoloOutput(outputTensor) {
 
     if (!isCalibrated) return;
 
-    // 5. Đánh giá tư thế
+    
     const currentRatio = smoothedEyeDist / (smoothedShoulderWidth || 1);
     const baselineRatio = baselineEyeDist / (baselineShoulderWidth || 1);
 
@@ -519,9 +507,6 @@ function processYoloOutput(outputTensor) {
     handlePostureStatus(isBadPosture, statusText);
 }
 
-// ==========================================
-// 5. XỬ LÝ CALIBRATE TƯ THẾ
-// ==========================================
 if (btnCalibrate) {
     btnCalibrate.addEventListener('click', async () => {
         const statusEl = document.getElementById('posture_status');
@@ -568,9 +553,6 @@ if (btnCalibrate) {
     });
 }
 
-// ==========================================
-// 6. CẢNH BÁO TƯ THẾ XẤU (POSTURE WARNING)
-// ==========================================
 function handlePostureStatus(isBadPosture, statusMessage) {
     const now = Date.now();
     const statusEl = document.getElementById('posture_status');
@@ -627,9 +609,6 @@ function hideWarningUI(statusEl) {
     }
 }
 
-// ==========================================
-// 7. POMODORO TIMER LOGIC
-// ==========================================
 let timerInterval = null;
 const TOTAL_SECONDS = 25 * 60;
 let timeLeft = TOTAL_SECONDS;
@@ -699,5 +678,14 @@ if (btnTimerReset) {
     });
 }
 
-// Khởi tạo hiển thị đồng hồ Pomodoro
 updateTimerDisplay();
+(async function pingBackendToWakeUp() {
+    try {
+        console.log("⏳ Sending pre-warm ping to Render backend...");
+        // Bắn 1 request nhẹ ngầm để Render tỉnh dậy trước
+        await fetch(`${BACKEND_URL}/`, { method: 'GET' });
+        console.log("⚡ Backend Render is awake and ready!");
+    } catch (e) {
+        console.log("⚠️ Render is waking up from sleep...");
+    }
+})();
