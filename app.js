@@ -16,7 +16,7 @@ const webcam = document.getElementById('webcam');
 const webcamContainer = document.getElementById('webcam_container');
 const btnCalibrate = document.getElementById('btn_calibrate');
 
-const BACKEND_URL = "https://ergopomodoropostureai.namkhanhnguyenquang.workers.dev";
+const BACKEND_URL = "";
 const MODEL_PATH = "./yolov8n-pose.onnx";
 
 
@@ -682,7 +682,6 @@ updateTimerDisplay();
 (async function pingBackendToWakeUp() {
     try {
         console.log("⏳ Sending pre-warm ping to Render backend...");
-        // Bắn 1 request nhẹ ngầm để Render tỉnh dậy trước
         await fetch(`${BACKEND_URL}/`, { method: 'GET' });
         console.log("⚡ Backend Render is awake and ready!");
     } catch (e) {
