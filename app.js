@@ -695,21 +695,47 @@ updateTimerDisplay();
     } catch (e) {}
 })();
 let lastSpeechTime = 0;
+let cachedVoice = null;
+
+function initVoices() {
+    if ('speechSynthesis' in window) {
+        const voices = window.speechSynthesis.getVoices();
+        if (voices.length > 0) {
+            cachedVoice = voices.find(v => v.lang.startsWith('en') && v.name.includes('Google')) 
+                       || voices.find(v => v.lang.startsWith('en')) 
+                       || voices[0];
+        }
+    }
+}
+
+if ('speechSynthesis' in window) {
+    initVoices();
+    window.speechSynthesis.onvoiceschanged = initVoices;
+}
 
 function playVoiceAlert(text) {
     const now = Date.now();
     if (now - lastSpeechTime < 5000) return;
     lastSpeechTime = now;
 
-    if ('speechSynthesis' in window) {
-        window.speechSynthesis.cancel();
+    if (!('speechSynthesis' in window)) return;
+
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.resume();
+
+    setTimeout(() => {
+        const cleanText = text.replace(/[🚨]/g, '').trim();
+        const utterance = new SpeechSynthesisUtterance(cleanText);
         
-        setTimeout(() => {
-            const utterance = new SpeechSynthesisUtterance(text);
-            utterance.lang = 'en-US';
-            utterance.rate = 1.0;
-            utterance.pitch = 1.0;
-            window.speechSynthesis.speak(utterance);
-        }, 50);
-    }
+        utterance.lang = 'en-US';
+        utterance.rate = 0.9;
+        utterance.pitch = 1.0;
+        utterance.volume = 1.0;
+
+        if (cachedVoice) {
+            utterance.voice = cachedVoice;
+        }
+
+        window.speechSynthesis.speak(utterance);
+    }, 100);
 }
