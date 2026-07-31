@@ -151,15 +151,21 @@ def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
                 continue
             
             cx, cy, w, h = boxes[i]
-            cx, cy, w_px = (cx / 480.0) * w_orig, (cy / 480.0) * h_orig, (w / 480.0) * w_orig
+            cx_real = (cx / 480.0) * w_orig
+            cy_real = (cy / 480.0) * h_orig
+            w_px = (w / 480.0) * w_orig
+            h_px = (h / 480.0) * h_orig
             
             if label not in object_coords:
                 object_coords[label] = []
-            object_coords[label].append({'center': (cx, cy), 'width_px': w_px})
+            object_coords[label].append({
+                'center': (cx_real, cy_real), 
+                'width_px': w_px, 
+                'height_px': h_px
+            })
 
     return object_coords
 
-def process_single_image(img, user_height):
 def process_desk_image(img, user_height, object_coords):
     """
     Evaluates workspace ergonomics:
@@ -173,7 +179,6 @@ def process_desk_image(img, user_height, object_coords):
     FONT_SCALE = max(0.5, w_img / 1200.0)
     THICKNESS = max(1, int(FONT_SCALE * 1.5))
 
-    # 1. Determine Anchor Point (Laptop or Monitor)
     x_origin, y_origin, w_origin_px = 0, 0, 0
     if 'laptop' in object_coords and len(object_coords['laptop']) > 0:
         x_origin, y_origin = object_coords['laptop'][0]['center']
@@ -185,14 +190,12 @@ def process_desk_image(img, user_height, object_coords):
         x_origin, y_origin = w_img / 2, h_img * 0.4
         w_origin_px = w_img * 0.35
 
-    # 2. Calculate Reach Zones
     if user_height <= 0:
         user_height = 170
 
     R_NORMAL_PX = w_origin_px * ((user_height * 0.24) / SCREEN_REAL_WIDTH_CM)
     R_MAX_PX = w_origin_px * ((user_height * 0.35) / SCREEN_REAL_WIDTH_CM)
 
-    # Draw Reach Zone Overlay
     overlay = img_out.copy()
     cv2.circle(overlay, (int(x_origin), int(y_origin)), int(R_NORMAL_PX), (0, 255, 0), -1)
     cv2.circle(img_out, (int(x_origin), int(y_origin)), int(R_MAX_PX), (0, 0, 255), 2)
@@ -206,11 +209,11 @@ def process_desk_image(img, user_height, object_coords):
     violations = []
     deductions = 0
 
-    # 3. Evaluate Objects and Distance Metrics
     for label_name, object_list in object_coords.items():
         for obj in object_list:
             x_obj, y_obj = obj['center']
-            w_obj, h_obj = obj['width_px'], obj['height_px']
+            w_obj = obj.get('width_px', 50)
+            h_obj = obj.get('height_px', 50)
 
             if abs(x_obj - x_origin) < 20 and abs(y_obj - y_origin) < 20: 
                 continue
@@ -230,7 +233,6 @@ def process_desk_image(img, user_height, object_coords):
             color_text = (255, 255, 255)
             x_target, y_target = x_obj, y_obj
 
-            # A. Liquids / Hazard Items in Danger Zone
             if label_name in hazardous_keys and distance_px < R_MAX_PX:
                 x_target = x_obj + (ux * offset_dist)
                 y_target = y_obj + (uy * offset_dist)
@@ -239,7 +241,6 @@ def process_desk_image(img, user_height, object_coords):
                 violations.append(f"**{label_name.title()}**: Placed too close to electronics ({distance_cm:.1f}cm)")
                 deductions += 25
 
-            # B. Essential Items Outside Reach Zone
             elif label_name in essential_keys and distance_px > R_NORMAL_PX:
                 x_target = x_obj - (ux * offset_dist)
                 y_target = y_obj - (uy * offset_dist)
@@ -248,7 +249,6 @@ def process_desk_image(img, user_height, object_coords):
                 violations.append(f"**{label_name.title()}**: Located outside natural reach zone ({distance_cm:.1f}cm)")
                 deductions += 15
 
-            # C. Books / Documents Clutter
             elif label_name in document_keys:
                 is_on_right_side = x_obj > x_origin
                 if is_on_right_side and distance_px < R_MAX_PX:
@@ -269,7 +269,6 @@ def process_desk_image(img, user_height, object_coords):
                     text = "STACK & ALIGN (Keep Clean)"
                     color_text = (0, 255, 0)
 
-            # 4. Render Label Overlays (No Arrows)
             if text != "":
                 (text_width, text_height), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, THICKNESS)
                 offset_x = 10 if ux >= 0 else -text_width - 10
@@ -294,12 +293,17 @@ def process_desk_image(img, user_height, object_coords):
                     cv2.rectangle(img_out, (r_x1, r_y1), (r_x2, r_y2), (0, 0, 0), cv2.FILLED)
                     cv2.putText(img_out, text, (t_x, t_y), cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, color_text, THICKNESS)
 
-    # 5. Final Score Calculation
     score = max(0, 100 - deductions)
     if not violations:
         violations.append("Workspace setup is optimal with no ergonomic risks detected.")
 
     return img_out, score, violations
+
+def process_single_image(img, user_height):
+    object_coords = run_desk_onnx(img)
+    annotated_img, score, violations = process_desk_image(img, user_height, object_coords)
+    return annotated_img, violations, score
+
 @app.get("/ping")
 @app.get("/")
 def read_root():
@@ -448,22 +452,6 @@ def analyze_frame(data: ImageData):
                         status = "Success: Standard posture saved!"
                         color = (0, 255, 0)
                         is_success = True
-            # C. Books / Documents Clutter
-            elif label_name in document_keys:
-                is_on_right_side = x_obj > x_origin
-                if is_on_right_side and distance_px < R_MAX_PX:
-                    x_target = x_obj + (ux * offset_dist)
-                    y_target = y_obj + (uy * offset_dist)
-                    text = "MOVE TO TOP-RIGHT (Mouse Blocked)"
-                    color_text = (0, 165, 255)
-                    violations.append("**Documents/Books**: Blocking mouse movement space on the right")
-                    deductions += 15
-                elif not is_on_right_side:
-                    x_target, y_target = x_obj, y_obj
-                    text = "USE DOCUMENT STAND (Save Neck)"
-                    color_text = (255, 255, 0)
-                    violations.append("**Documents/Books**: Placed flat on desk (may cause neck flexion)")
-                    deductions += 10
                 else:
                     if data.baseline_eye_dist > 0 and current_eye_dist > (data.baseline_eye_dist * 1.25):
                         status = "Warning: Too close to screen!"
@@ -478,12 +466,12 @@ def analyze_frame(data: ImageData):
                         status = "Good posture"
                         color = (0, 255, 0)
 
-                cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-                cv2.circle(img, (int(left_eye[0]), int(left_eye[1])), 4, (255, 0, 0), -1)
-                cv2.circle(img, (int(right_eye[0]), int(right_eye[1])), 4, (255, 0, 0), -1)
-                if confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD:
-                    cv2.line(img, (int(left_shoulder[0]), int(left_shoulder[1])), 
-                             (int(right_shoulder[0]), int(right_shoulder[1])), (0, 255, 0), 2)
+            cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+            cv2.circle(img, (int(left_eye[0]), int(left_eye[1])), 4, (255, 0, 0), -1)
+            cv2.circle(img, (int(right_eye[0]), int(right_eye[1])), 4, (255, 0, 0), -1)
+            if confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD:
+                cv2.line(img, (int(left_shoulder[0]), int(left_shoulder[1])), 
+                         (int(right_shoulder[0]), int(right_shoulder[1])), (0, 255, 0), 2)
 
         _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 50])
         processed_base64 = base64.b64encode(buffer).decode('utf-8')
@@ -498,41 +486,7 @@ def analyze_frame(data: ImageData):
         }
     finally:
         gc.collect()
-                    x_target, y_target = x_obj, y_obj
-                    text = "STACK & ALIGN (Keep Clean)"
-                    color_text = (0, 255, 0)
-
-            # 4. Render Label Overlays (No Arrows)
-            if text != "":
-                (text_width, text_height), baseline = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, THICKNESS)
-                offset_x = 10 if ux >= 0 else -text_width - 10
-                offset_y = -10
-                t_x = int(x_target) + int(offset_x)
-                t_y = int(y_target) + int(offset_y)
-
-                t_x = max(5, min(t_x, w_img - text_width - 5))
-                t_y = max(text_height + 5, min(t_y, h_img - 5))
-
-                r_x1, r_y1 = t_x - 4, t_y - text_height - 4
-                r_x2, r_y2 = t_x + text_width + 4, t_y + baseline + 2
-
-                is_overlapping = False
-                for (b1, b2, b3, b4) in drawn_text_rects:
-                    if not (r_x1 > b3 or r_x2 < b1 or r_y1 > b4 or r_y2 < b2):
-                        is_overlapping = True
-                        break
-
-                if not is_overlapping:
-                    drawn_text_rects.append((r_x1, r_y1, r_x2, r_y2))
-                    cv2.rectangle(img_out, (r_x1, r_y1), (r_x2, r_y2), (0, 0, 0), cv2.FILLED)
-                    cv2.putText(img_out, text, (t_x, t_y), cv2.FONT_HERSHEY_SIMPLEX, FONT_SCALE, color_text, THICKNESS)
-
-    # 5. Final Score Calculation
-    score = max(0, 100 - deductions)
-    if not violations:
-        violations.append("Workspace setup is optimal with no ergonomic risks detected.")
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
     uvicorn.run("app:app", host="0.0.0.0", port=port, reload=False)
-    return img_out, score, violations
