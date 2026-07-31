@@ -107,7 +107,6 @@ def get_voice_base64(text: str, lang='en') -> str:
             return ""
     return AUDIO_CACHE[cache_key]
 
-# 2. Đã thêm NMS vào hàm nhận diện vật thể YOLO
 def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
     h_orig, w_orig = img.shape[:2]
     img_resized = cv2.resize(img, (480, 480))
@@ -134,7 +133,6 @@ def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
     if len(boxes) == 0:
         return {}
 
-    # Chuyển đổi định dạng box để áp dụng NMS
     boxes_nms = []
     for cx, cy, w, h in boxes:
         x_min = int(cx - w / 2)
@@ -259,6 +257,7 @@ async def assess_desk(
                 gemini_insights = response.text if response.text else ""
             except Exception as err:
                 err_msg = str(err)
+                print(f"[DEBUG GEMINI ERROR]: {err_msg}")
                 if "API_KEY_INVALID" in err_msg or "400" in err_msg:
                     gemini_insights = "\n> *AI Insight: Please check GEMINI_API_KEY setting in Render.*"
                 else:
