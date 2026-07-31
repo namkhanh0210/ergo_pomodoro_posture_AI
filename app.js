@@ -452,10 +452,12 @@ function processYoloOutput(outputTensor) {
 
     let currShoulderY = 0;
     let currShoulderWidth = 0;
+    let shoulderTilt = 0;
 
     if (leftShoulder.conf >= minConf && rightShoulder.conf >= minConf) {
         currShoulderY = (leftShoulder.y + rightShoulder.y) / 2;
         currShoulderWidth = Math.hypot(leftShoulder.x - rightShoulder.x, leftShoulder.y - rightShoulder.y);
+        shoulderTilt = Math.abs(leftShoulder.y - rightShoulder.y);
     } else if (leftShoulder.conf >= minConf) {
         currShoulderY = leftShoulder.y;
     } else if (rightShoulder.conf >= minConf) {
@@ -501,6 +503,9 @@ function processYoloOutput(outputTensor) {
     } else if (smoothedShoulderY > baselineShoulderY + 8) {
         isBadPosture = true;
         statusText = "SLOUCHING DETECTED";
+    } else if (shoulderTilt > 15) {
+        isBadPosture = true;
+        statusText = "LEANING / SHOULDER TILTED";
     }
 
     handlePostureStatus(isBadPosture, statusText);
