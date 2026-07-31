@@ -280,30 +280,22 @@ function stopWebcam() {
 }
 
 async function initYoloONNX() {
-    if (sessionONNX) return true;
-    const statusEl = document.getElementById('posture_status');
-    if (statusEl) {
-        statusEl.innerText = "LOADING YOLO MODEL...";
-        statusEl.className = "font-bold text-amber-500 tracking-wide animate-pulse";
-    }
-
     try {
-        sessionONNX = await ort.InferenceSession.create(MODEL_PATH, {
-            executionProviders: ['wasm']
-        });
-        console.log("✅ [ONNX Loaded] Inputs:", sessionONNX.inputNames, "Outputs:", sessionONNX.outputNames);
-        if (statusEl) {
-            statusEl.innerText = "YOLO READY (CALIBRATE REQUIRED)";
-            statusEl.className = "font-bold text-primary tracking-wide";
-        }
-        return true;
-    } catch (err) {
-        console.error("❌ [ONNX Load Error]:", err);
-        if (statusEl) {
-            statusEl.innerText = "MODEL LOAD ERROR";
-            statusEl.className = "font-bold text-error tracking-wide";
-        }
-        return false;
+        const sessionOptions = {
+            executionProviders: ['wasm'],
+            externalData: [
+                {
+                    path: 'yolov8n-pose.onnx.data',
+                    data: './yolov8n-pose.onnx.data'
+                }
+            ]
+        };
+
+        poseSession = await ort.InferenceSession.create('./yolov8n-pose.onnx', sessionOptions);
+        
+        console.log("ONNX Pose Session loaded successfully!");
+    } catch (error) {
+        console.error("Error loading ONNX model:", error);
     }
 }
 
