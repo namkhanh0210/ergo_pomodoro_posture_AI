@@ -682,7 +682,7 @@ updateTimerDisplay();
 (async function pingBackendToWakeUp() {
     try {
         console.log("⏳ Sending pre-warm ping to Render backend...");
-        await fetch(`${BACKEND_URL}/`, { method: 'GET' });
+        await fetch('/ping', { method: 'GET' }); // <--- Đã đổi thành '/ping'
         console.log("⚡ Backend Render is awake and ready!");
     } catch (e) {
         console.log("⚠️ Render is waking up from sleep...");
