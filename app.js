@@ -242,7 +242,11 @@ if (deskFileInput) {
             }
 
             if (data.audio_base64) {
-                const audio = new Audio(data.audio_base64);
+                const audioSrc = data.audio_base64.startsWith('data:') 
+                ? data.audio_base64 
+                : `data:audio/mp3;base64,${data.audio_base64}`;
+
+                const audio = new Audio(audioSrc);
                 audio.play().catch(err => {});
                 audio.onended = () => { audio.src = ""; };
             }
@@ -601,6 +605,7 @@ function showWarningUI(message, statusEl) {
     if (webcamContainer) {
         webcamContainer.classList.add('ring-4', 'ring-red-500');
     }
+    playVoiceAlert(message);
 }
 
 function hideWarningUI(statusEl) {
@@ -689,3 +694,13 @@ updateTimerDisplay();
         await fetch(`${BACKEND_URL}/ping`, { method: 'GET' });
     } catch (e) {}
 })();
+function playVoiceAlert(text) {
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.lang = 'en-US';
+        utterance.rate = 1.0;
+        utterance.pitch = 1.0;
+        window.speechSynthesis.speak(utterance);
+    }
+}
