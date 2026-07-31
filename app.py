@@ -32,25 +32,35 @@ app.add_middleware(
 desk_session = None
 pose_session = None
 
+def create_onnx_options():
+    opts = ort.SessionOptions()
+    opts.intra_op_num_threads = 1
+    opts.inter_op_num_threads = 1
+    opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
+    opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_BASIC
+    return opts
+
 def get_desk_session():
     global desk_session
     if desk_session is None:
-        desk_session = ort.InferenceSession("yolov8n.onnx")
+        desk_session = ort.InferenceSession("yolov8n.onnx", sess_options=create_onnx_options())
     return desk_session
 
 def get_pose_session():
     global pose_session
     if pose_session is None:
-        pose_session = ort.InferenceSession("yolov8n-pose.onnx")
+        pose_session = ort.InferenceSession("yolov8n-pose.onnx", sess_options=create_onnx_options())
     return pose_session
 
-GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
-gemini_client = None
-if GEMINI_API_KEY and genai:
+def get_gemini_client():
+    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
+    if not api_key or not genai:
+        return None
     try:
-        gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+        return genai.Client(api_key=api_key)
     except Exception as e:
-        print(f"[Warning] Failed to initialize Gemini Client: {e}")
+        print(f"[Warning] Gemini Client Init Error: {e}")
+        return None
 
 AUDIO_CACHE = {}
 MAX_CACHE_SIZE = 5
@@ -79,7 +89,7 @@ def clean_text_for_tts(text):
     return re.sub(r'\s+', ' ', cleaned).strip()
 
 def get_voice_base64(text: str, lang='en') -> str:
-    if not text: 
+    if not text:
         return ""
     if len(AUDIO_CACHE) > MAX_CACHE_SIZE:
         AUDIO_CACHE.clear()
@@ -97,9 +107,6 @@ def get_voice_base64(text: str, lang='en') -> str:
             return ""
     return AUDIO_CACHE[cache_key]
 
-# ==========================================
-# RUN DESK DETECT (TỰ ĐỘNG CHUYỂN VỊ SHAPE TENSOR)
-# ==========================================
 def run_desk_onnx(img, conf_thresh=0.20):
     h_orig, w_orig = img.shape[:2]
     img_resized = cv2.resize(img, (480, 480))
@@ -112,7 +119,6 @@ def run_desk_onnx(img, conf_thresh=0.20):
     outputs = session.run(None, {input_name: input_tensor})[0]
 
     out = outputs[0]
-    # Tự động điều chỉnh shape về [Anchors, Channels]
     if out.shape[0] < out.shape[1]:
         out = out.T
 
@@ -171,11 +177,11 @@ def process_single_image(img, user_height):
     for label_name, object_list in object_coords.items():
         for obj in object_list:
             x_obj, y_obj = obj['center']
-            if abs(x_obj - x_origin) < 20 and abs(y_obj - y_origin) < 20: 
+            if abs(x_obj - x_origin) < 20 and abs(y_obj - y_origin) < 20:
                 continue
             
             distance_px = math.sqrt((x_obj - x_origin)**2 + (y_obj - y_origin)**2)
-            if distance_px == 0: 
+            if distance_px == 0:
                 continue
             distance_cm = (distance_px / w_origin_px) * SCREEN_REAL_WIDTH_CM
 
@@ -191,7 +197,7 @@ def process_single_image(img, user_height):
 
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "ErgoAI Ultra-light ONNX Backend is running!"}
+    return {"status": "online", "message": "ErgoAI Ultra-light ONNX Backend is awake & ready!"}
 
 @app.post("/api/assess_desk")
 async def assess_desk(
@@ -218,20 +224,32 @@ async def assess_desk(
         spatial_section = f"### Spatial Alerts\n{violations_text}\n"
 
         gemini_insights = ""
-        if gemini_client:
+        client = get_gemini_client()
+        
+        if client:
             try:
                 img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
                 raw_img = Image.fromarray(img_rgb)
                 raw_img.thumbnail((640, 640))
                 
-                prompt = f"User Height: {user_height}cm. Score: {score}. Issues: {violations_text}. Be concise in English."
-                response = gemini_client.models.generate_content(model='gemini-2.5-flash', contents=[prompt, raw_img])
+                prompt = f"User Height: {user_height}cm. Score: {score}. Issues: {violations_text}. Provide 2 short ergonomic tips in English."
+                
+                response = client.models.generate_content(
+                    model='gemini-2.0-flash', 
+                    contents=[prompt, raw_img]
+                )
                 gemini_insights = response.text if response.text else ""
             except Exception as err:
-                gemini_insights = f"\n> AI Insight Error: `{str(err)}`"
+                err_msg = str(err)
+                if "API_KEY_INVALID" in err_msg or "400" in err_msg:
+                    gemini_insights = "\n> *AI Insight: Please check GEMINI_API_KEY setting in Render.*"
+                else:
+                    gemini_insights = f"\n> *AI Insight temporarily unavailable.*"
+        else:
+            gemini_insights = "\n> *AI Insight: Add GEMINI_API_KEY to Render Environment Variables to enable smart tips.*"
 
         final_report = f"### Ergonomic Score: **{score}/100**\n\n{spatial_section}\n---\n{gemini_insights}"
-        tts_text = clean_text_for_tts(gemini_insights if gemini_insights else "Analysis complete.")
+        tts_text = clean_text_for_tts(gemini_insights if ("Error" not in gemini_insights and "Add" not in gemini_insights) else "Desk assessment completed.")
         audio_base64_str = get_voice_base64(tts_text, lang='en')
 
         return {
@@ -242,9 +260,6 @@ async def assess_desk(
     finally:
         gc.collect()
 
-# ==========================================
-# RUN POSE DETECT (TỰ ĐỘNG CHUYỂN VỊ & HẠ NGƯỠNG CONF)
-# ==========================================
 def run_pose_onnx(img):
     h_orig, w_orig = img.shape[:2]
     img_resized = cv2.resize(img, (640, 640))
@@ -257,15 +272,12 @@ def run_pose_onnx(img):
     outputs = session.run(None, {input_name: input_tensor})[0]
 
     out = outputs[0]
-    
-    # Kiểm tra và xoay Ma trận linh hoạt theo Shape thực tế
     if out.shape[0] < out.shape[1]: 
-        out = out.T  # Đưa về dạng [8400, 56]
+        out = out.T
 
     box_confs = out[:, 4]
     best_idx = np.argmax(box_confs)
     
-    # Hạ ngưỡng điểm tin cậy xuống 0.05 để cực kỳ nhạy với webcam nén
     if box_confs[best_idx] < 0.05:
         return None, None
 
@@ -301,7 +313,7 @@ def analyze_frame(data: ImageData):
             nose = kpts[0]
             left_eye, right_eye = kpts[1], kpts[2]
             left_shoulder, right_shoulder = kpts[5], kpts[6]
-            CONF_THRESHOLD = 0.03  # Hạ ngưỡng điểm khớp cơ thể
+            CONF_THRESHOLD = 0.03
 
             if confs[1] > CONF_THRESHOLD and confs[2] > CONF_THRESHOLD:
                 current_eye_dist = calculate_distance(left_eye, right_eye)
