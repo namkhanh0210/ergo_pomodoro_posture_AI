@@ -212,6 +212,7 @@ def process_single_image(img, user_height):
     score = max(0, 100 - deductions)
     return img_out, list(dict.fromkeys(violations)), score
 
+@app.get("/ping")
 @app.get("/")
 def read_root():
     return {"status": "online", "message": "ErgoAI Ultra-light ONNX Backend is awake & ready!"}
