@@ -1,6 +1,5 @@
 app.py
 requirements.txt
 Dockerfile*
-*.onnx
 worker.js
 wrangler.toml
