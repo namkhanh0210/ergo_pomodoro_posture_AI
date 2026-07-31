@@ -16,9 +16,8 @@ const webcam = document.getElementById('webcam');
 const webcamContainer = document.getElementById('webcam_container');
 const btnCalibrate = document.getElementById('btn_calibrate');
 
-const BACKEND_URL = "";
+const BACKEND_URL = "https://ergo-pomodoro-posture-ai.onrender.com";
 const MODEL_PATH = "./yolov8n-pose.onnx";
-
 
 const MODEL_SIZE = 256;
 const inputFloat32Array = new Float32Array(1 * 3 * MODEL_SIZE * MODEL_SIZE);
@@ -40,11 +39,39 @@ let badPostureStartTime = 0;
 let goodPostureStartTime = 0;
 let isWarningActive = false;
 
-
 const yoloCanvas = document.createElement('canvas');
 yoloCanvas.width = MODEL_SIZE;
 yoloCanvas.height = MODEL_SIZE;
 const yoloCtx = yoloCanvas.getContext('2d', { willReadFrequently: true });
+
+async function initYoloONNX() {
+    if (sessionONNX) return true;
+
+    const statusEl = document.getElementById('posture_status');
+    try {
+        if (statusEl) {
+            statusEl.innerText = "LOADING AI MODEL...";
+            statusEl.className = "font-bold text-amber-500 tracking-wide animate-pulse";
+        }
+
+        sessionONNX = await ort.InferenceSession.create(MODEL_PATH, {
+            executionProviders: ['wasm']
+        });
+
+        if (statusEl) {
+            statusEl.innerText = "READY TO CALIBRATE";
+            statusEl.className = "font-bold text-primary tracking-wide";
+        }
+        return true;
+    } catch (err) {
+        if (statusEl) {
+            statusEl.innerText = "MODEL NOT FOUND (404)";
+            statusEl.className = "font-bold text-error tracking-wide";
+        }
+        alert("Lỗi: Không tìm thấy tệp 'yolov8n-pose.onnx'. Vui lòng tải tệp này và đặt vào cùng thư mục với index.html.");
+        return false;
+    }
+}
 
 function compressImage(file, maxWidth = 800, quality = 0.6) {
     return new Promise((resolve, reject) => {
@@ -136,8 +163,10 @@ window.goToMainWorkspace = async function () {
 
     const isCamReady = await startWebcam();
     if (isCamReady) {
-        await initYoloONNX();
-        startPostureAI();
+        const isModelLoaded = await initYoloONNX();
+        if (isModelLoaded) {
+            startPostureAI();
+        }
     }
 };
 
@@ -214,7 +243,7 @@ if (deskFileInput) {
 
             if (data.audio_base64) {
                 const audio = new Audio(data.audio_base64);
-                audio.play().catch(err => console.log("Audio autoplay blocked:", err));
+                audio.play().catch(err => {});
                 audio.onended = () => { audio.src = ""; };
             }
 
@@ -280,16 +309,15 @@ function stopWebcam() {
 }
 
 async function sendFrameToBackend(imageBase64) {
-  const response = await fetch("https://ergo-pomodoro-posture-ai.onrender.com//api/analyze_frame", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      image_base64: imageBase64,
-      is_calibration: false
-    })
-  });
-  const data = await response.json();
-  console.log("Kết quả từ backend:", data);
+    const response = await fetch(`${BACKEND_URL}/api/analyze_frame`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            image_base64: imageBase64,
+            is_calibration: false
+        })
+    });
+    const data = await response.json();
 }
 
 function preprocessWebcamToTensor() {
@@ -301,7 +329,6 @@ function preprocessWebcamToTensor() {
 
     const area = MODEL_SIZE * MODEL_SIZE;
 
-    
     for (let i = 0; i < area; i++) {
         inputFloat32Array[i]            = data[i * 4]     / 255.0; 
         inputFloat32Array[area + i]     = data[i * 4 + 1] / 255.0; 
@@ -333,9 +360,7 @@ function startPostureAI() {
                     if (outputTensor && outputTensor.data) {
                         processYoloOutput(outputTensor);
                     }
-                } catch (e) {
-                    console.error("⚠️ [ONNX Execution Error]:", e);
-                }
+                } catch (e) {}
             }
         }
 
@@ -351,7 +376,6 @@ function stopPostureAI() {
     isMonitoring = false;
 }
 
-
 function processYoloOutput(outputTensor) {
     if (!outputTensor || !outputTensor.data || !outputTensor.dims) return;
 
@@ -359,10 +383,9 @@ function processYoloOutput(outputTensor) {
     const dims = outputTensor.dims;
 
     let numChannels = 56;
-    let numAnchors = 1344; // Mặc định 256x256 có 1344 anchors
+    let numAnchors = 1344;
     let isChannelsFirst = true;
 
-    // Phân tích ma trận tự động
     if (dims.length === 3) {
         if (dims[1] > dims[2]) {
             numAnchors = dims[1];
@@ -378,7 +401,6 @@ function processYoloOutput(outputTensor) {
     let maxScore = -1;
     let bestIdx = -1;
 
-   
     for (let i = 0; i < numAnchors; i++) {
         const scoreIdx = isChannelsFirst ? (4 * numAnchors + i) : (i * numChannels + 4);
         const score = data[scoreIdx];
@@ -393,7 +415,6 @@ function processYoloOutput(outputTensor) {
 
     if (bestIdx === -1) return;
 
-   
     const getKP = (kpIdx) => {
         const channelX = 5 + kpIdx * 3;
         const channelY = 5 + kpIdx * 3 + 1;
@@ -420,7 +441,6 @@ function processYoloOutput(outputTensor) {
 
     const minConf = 0.03;
 
-   
     let currEyeDist = 0;
     if (leftEye.conf >= minConf && rightEye.conf >= minConf) {
         currEyeDist = Math.hypot(leftEye.x - rightEye.x, leftEye.y - rightEye.y);
@@ -430,7 +450,6 @@ function processYoloOutput(outputTensor) {
         currEyeDist = Math.hypot(rightEye.x - nose.x, rightEye.y - nose.y) * 2;
     }
 
-   
     let currShoulderY = 0;
     let currShoulderWidth = 0;
 
@@ -445,7 +464,6 @@ function processYoloOutput(outputTensor) {
         currShoulderY = nose.y + 40; 
     }
 
-
     if (currEyeDist === 0 && currShoulderWidth > 0) {
         currEyeDist = currShoulderWidth / 2.5;
     } else if (currShoulderWidth === 0 && currEyeDist > 0) {
@@ -454,7 +472,6 @@ function processYoloOutput(outputTensor) {
 
     if (currEyeDist === 0 && currShoulderWidth === 0) return;
 
-   
     if (smoothedEyeDist === 0) {
         smoothedEyeDist = currEyeDist;
         smoothedShoulderY = currShoulderY;
@@ -465,7 +482,6 @@ function processYoloOutput(outputTensor) {
         smoothedShoulderWidth = smoothedShoulderWidth * 0.75 + currShoulderWidth * 0.25;
     }
 
-  
     const eyeEl = document.getElementById('metric_eye');
     const shoulderEl = document.getElementById('metric_shoulder');
     if (eyeEl) eyeEl.innerText = `${Math.round(smoothedEyeDist)} px`;
@@ -473,7 +489,6 @@ function processYoloOutput(outputTensor) {
 
     if (!isCalibrated) return;
 
-    
     const currentRatio = smoothedEyeDist / (smoothedShoulderWidth || 1);
     const baselineRatio = baselineEyeDist / (baselineShoulderWidth || 1);
 
@@ -483,7 +498,7 @@ function processYoloOutput(outputTensor) {
     if (currentRatio > baselineRatio * 1.2) {
         isBadPosture = true;
         statusText = "TOO CLOSE TO SCREEN";
-    } else if (smoothedShoulderY > baselineShoulderY + 8) { // Ngưỡng 8px tương đương 20px ở 640
+    } else if (smoothedShoulderY > baselineShoulderY + 8) {
         isBadPosture = true;
         statusText = "SLOUCHING DETECTED";
     }
@@ -663,12 +678,9 @@ if (btnTimerReset) {
 }
 
 updateTimerDisplay();
+
 (async function pingBackendToWakeUp() {
     try {
-        console.log("⏳ Sending pre-warm ping to Render backend...");
-        await fetch('/ping', { method: 'GET' }); // <--- Đã đổi thành '/ping'
-        console.log("⚡ Backend Render is awake and ready!");
-    } catch (e) {
-        console.log("⚠️ Render is waking up from sleep...");
-    }
+        await fetch(`${BACKEND_URL}/ping`, { method: 'GET' });
+    } catch (e) {}
 })();
