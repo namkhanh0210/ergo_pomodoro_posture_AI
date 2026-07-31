@@ -10,7 +10,7 @@ import onnxruntime as ort
 import uvicorn
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
-from gtts import gTTS
+from gTTS import gTTS
 from pydantic import BaseModel
 
 app = FastAPI(title="ErgoAI - Lightweight ONNX Backend")
@@ -47,17 +47,17 @@ def get_pose_session():
     return pose_session
 
 AUDIO_CACHE = {}
-MAX_CACHE_SIZE = 5
+MAX_CACHE_SIZE = 3
 SCREEN_REAL_WIDTH_CM = 35.0
 
 COCO_CLASSES = {
     0: 'person', 39: 'bottle', 41: 'cup', 62: 'tvmonitor',
-    63: 'laptop', 64: 'mouse', 66: 'keyboard'
+    63: 'laptop', 64: 'mouse', 66: 'keyboard', 73: 'book'
 }
 
 class ImageData(BaseModel):
     image_base64: str
-    is_calibration: bool
+    is_calibration: bool = False
     baseline_eye_dist: float = 0.0
     baseline_shoulder_y: float = 0.0
 
@@ -68,20 +68,22 @@ def cv2_to_base64(image):
     _, buffer = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 60])
     return f"data:image/jpeg;base64,{base64.b64encode(buffer).decode('utf-8')}"
 
+function_clean_re = re.compile(r'[\#\*\_\`\>\-\[\]\(\)]')
 def clean_text_for_tts(text):
-    cleaned = re.sub(r'[\#\*\_\`\>\-\[\]\(\)]', ' ', text)
+    cleaned = function_clean_re.sub(' ', text)
     return re.sub(r'\s+', ' ', cleaned).strip()
 
 def get_voice_base64(text: str, lang='en') -> str:
     if not text:
         return ""
-    if len(AUDIO_CACHE) > MAX_CACHE_SIZE:
+    if len(AUDIO_CACHE) >= MAX_CACHE_SIZE:
         AUDIO_CACHE.clear()
         
-    cache_key = f"{lang}_{text}"
+    cache_key = f"{lang}_{text[:100]}"
     if cache_key not in AUDIO_CACHE:
         try:
-            tts = gTTS(text=text, lang=lang, slow=False)
+            short_text = text[:150]
+            tts = gTTS(text=short_text, lang=lang, slow=False)
             fp = io.BytesIO()
             tts.write_to_fp(fp)
             fp.seek(0)
@@ -92,7 +94,9 @@ def get_voice_base64(text: str, lang='en') -> str:
 
 def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
     h_orig, w_orig = img.shape[:2]
-    img_resized = cv2.resize(img, (480, 480))
+    INPUT_SIZE = 640
+
+    img_resized = cv2.resize(img, (INPUT_SIZE, INPUT_SIZE))
     img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
     input_tensor = img_rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
     input_tensor = np.expand_dims(input_tensor, axis=0)
@@ -134,10 +138,10 @@ def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
                 continue
             
             cx, cy, w, h = boxes[i]
-            cx_real = (cx / 480.0) * w_orig
-            cy_real = (cy / 480.0) * h_orig
-            w_px = (w / 480.0) * w_orig
-            h_px = (h / 480.0) * h_orig
+            cx_real = (cx / float(INPUT_SIZE)) * w_orig
+            cy_real = (cy / float(INPUT_SIZE)) * h_orig
+            w_px = (w / float(INPUT_SIZE)) * w_orig
+            h_px = (h / float(INPUT_SIZE)) * h_orig
             
             if label not in object_coords:
                 object_coords[label] = []
@@ -153,7 +157,7 @@ def process_desk_image(img, user_height, object_coords):
     h_img, w_img, _ = img.shape
     img_out = img.copy()
 
-    FONT_SCALE = max(0.5, w_img / 1200.0)
+    FONT_SCALE = max(0.4, w_img / 1200.0)
     THICKNESS = max(1, int(FONT_SCALE * 1.5))
 
     x_origin, y_origin, w_origin_px = 0, 0, 0
@@ -170,6 +174,8 @@ def process_desk_image(img, user_height, object_coords):
     if user_height <= 0:
         user_height = 170
 
+    w_origin_px = max(1.0, w_origin_px)
+
     R_NORMAL_PX = w_origin_px * ((user_height * 0.24) / SCREEN_REAL_WIDTH_CM)
     R_MAX_PX = w_origin_px * ((user_height * 0.35) / SCREEN_REAL_WIDTH_CM)
 
@@ -178,7 +184,7 @@ def process_desk_image(img, user_height, object_coords):
     cv2.circle(img_out, (int(x_origin), int(y_origin)), int(R_MAX_PX), (0, 0, 255), 2)
     cv2.addWeighted(overlay, 0.08, img_out, 0.92, 0, img_out)
 
-    hazardous_keys = ['cup', 'bottle', 'wine glass']
+    hazardous_keys = ['cup', 'bottle']
     essential_keys = ['mouse', 'keyboard']
     document_keys = ['book']
     
@@ -233,17 +239,11 @@ def process_desk_image(img, user_height, object_coords):
                     y_target = y_obj + (uy * offset_dist)
                     text = "MOVE TO TOP-RIGHT (Mouse Blocked)"
                     color_text = (0, 165, 255)
-                    violations.append("**Documents/Books**: Blocking mouse movement space on the right")
+                    violations.append("**Documents/Books**: Blocking mouse movement space")
                     deductions += 15
-                elif not is_on_right_side:
-                    x_target, y_target = x_obj, y_obj
-                    text = "USE DOCUMENT STAND (Save Neck)"
-                    color_text = (255, 255, 0)
-                    violations.append("**Documents/Books**: Placed flat on desk (may cause neck flexion)")
-                    deductions += 10
                 else:
                     x_target, y_target = x_obj, y_obj
-                    text = "STACK & ALIGN (Keep Clean)"
+                    text = "STACK & ALIGN"
                     color_text = (0, 255, 0)
 
             if text != "":
@@ -284,7 +284,7 @@ def process_single_image(img, user_height):
 @app.get("/ping")
 @app.get("/")
 def read_root():
-    return {"status": "online", "message": "ErgoAI Ultra-light ONNX Backend is awake & ready!"}
+    return {"status": "online", "message": "ErgoAI Backend is awake and ready!"}
 
 @app.post("/api/assess_desk")
 async def assess_desk(
@@ -302,7 +302,7 @@ async def assess_desk(
 
         h, w = img_bgr.shape[:2]
         if max(h, w) > 640:
-            scale = 640 / max(h, w)
+            scale = 640.0 / float(max(h, w))
             img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)))
 
         annotated_bgr, violations, score = process_single_image(img_bgr, user_height)
@@ -321,6 +321,8 @@ async def assess_desk(
             "processed_image": cv2_to_base64(annotated_bgr),
             "audio_base64": f"data:audio/mp3;base64,{audio_base64_str}" if audio_base64_str else ""
         }
+    except Exception as e:
+        return {"feedback": f"Error processing image: {str(e)}", "processed_image": "", "audio_base64": ""}
     finally:
         gc.collect()
 
@@ -420,11 +422,6 @@ def analyze_frame(data: ImageData):
                         color = (0, 255, 0)
 
             cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-            cv2.circle(img, (int(left_eye[0]), int(left_eye[1])), 4, (255, 0, 0), -1)
-            cv2.circle(img, (int(right_eye[0]), int(right_eye[1])), 4, (255, 0, 0), -1)
-            if confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD:
-                cv2.line(img, (int(left_shoulder[0]), int(left_shoulder[1])), 
-                         (int(right_shoulder[0]), int(right_shoulder[1])), (0, 255, 0), 2)
 
         _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 50])
         processed_base64 = base64.b64encode(buffer).decode('utf-8')
