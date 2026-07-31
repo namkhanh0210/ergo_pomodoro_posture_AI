@@ -251,7 +251,7 @@ async def assess_desk(
                 prompt = f"User Height: {user_height}cm. Score: {score}. Issues: {violations_text}. Provide 2 short ergonomic tips in English."
                 
                 response = client.models.generate_content(
-                    model='gemini-2.0-flash', 
+                    model='gemini-1.5-flash', 
                     contents=[prompt, raw_img]
                 )
                 gemini_insights = response.text if response.text else ""
