@@ -86,8 +86,7 @@ def get_voice_base64(text: str, lang='en') -> str:
             tts.write_to_fp(fp)
             fp.seek(0)
             AUDIO_CACHE[cache_key] = base64.b64encode(fp.read()).decode('utf-8')
-        except Exception as e:
-            print(f"[TTS Error]: {e}")
+        except Exception:
             return ""
     return AUDIO_CACHE[cache_key]
 
@@ -143,8 +142,8 @@ def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
             if label not in object_coords:
                 object_coords[label] = []
             object_coords[label].append({
-                'center': (cx_real, cy_real), 
-                'width_px': w_px, 
+                'center': (cx_real, cy_real),
+                'width_px': w_px,
                 'height_px': h_px
             })
 
@@ -193,11 +192,11 @@ def process_desk_image(img, user_height, object_coords):
             w_obj = obj.get('width_px', 50)
             h_obj = obj.get('height_px', 50)
 
-            if abs(x_obj - x_origin) < 20 and abs(y_obj - y_origin) < 20: 
+            if abs(x_obj - x_origin) < 20 and abs(y_obj - y_origin) < 20:
                 continue
 
             distance_px = math.sqrt((x_obj - x_origin)**2 + (y_obj - y_origin)**2)
-            if distance_px == 0: 
+            if distance_px == 0:
                 continue
 
             distance_cm = (distance_px / w_origin_px) * SCREEN_REAL_WIDTH_CM
