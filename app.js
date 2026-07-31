@@ -279,17 +279,17 @@ function stopWebcam() {
     }
 }
 
-async function initYoloONNX() {
-    try {
-        const sessionOptions = {
-            executionProviders: ['wasm']
-        };
-        poseSession = await ort.InferenceSession.create('./yolov8n-pose.onnx', sessionOptions);
-        
-        console.log("ONNX Pose Session loaded successfully!");
-    } catch (error) {
-        console.error("Error loading ONNX model:", error);
-    }
+async function sendFrameToBackend(imageBase64) {
+  const response = await fetch("https://<YOUR-RENDER-APP-NAME>.onrender.com/api/analyze_frame", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      image_base64: imageBase64,
+      is_calibration: false
+    })
+  });
+  const data = await response.json();
+  console.log("Kết quả từ backend:", data);
 }
 
 function preprocessWebcamToTensor() {
