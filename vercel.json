@@ -1,0 +1,12 @@
+{
+  "rewrites": [
+    {
+      "source": "/api/:path*",
+      "destination": "https://ergo-pomodoro-posture-ai.onrender.com/api/:path*"
+    },
+    {
+      "source": "/ping",
+      "destination": "https://ergo-pomodoro-posture-ai.onrender.com/"
+    }
+  ]
+}
