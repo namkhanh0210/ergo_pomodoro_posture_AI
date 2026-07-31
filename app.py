@@ -12,12 +12,6 @@ from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.middleware.cors import CORSMiddleware
 from gtts import gTTS
 from pydantic import BaseModel
-from PIL import Image
-
-try:
-    from google import genai
-except ImportError:
-    genai = None
 
 app = FastAPI(title="ErgoAI - Lightweight ONNX Backend")
 
@@ -51,16 +45,6 @@ def get_pose_session():
     if pose_session is None:
         pose_session = ort.InferenceSession("yolov8n-pose.onnx", sess_options=create_onnx_options())
     return pose_session
-
-def get_gemini_client():
-    api_key = os.environ.get("GEMINI_API_KEY", "").strip()
-    if not api_key or not genai:
-        return None
-    try:
-        return genai.Client(api_key=api_key)
-    except Exception as e:
-        print(f"[Warning] Gemini Client Init Error: {e}")
-        return None
 
 AUDIO_CACHE = {}
 MAX_CACHE_SIZE = 5
@@ -167,12 +151,6 @@ def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
     return object_coords
 
 def process_desk_image(img, user_height, object_coords):
-    """
-    Evaluates workspace ergonomics:
-    - Draws transparent Reach Zone circles
-    - Renders warning labels without arrows
-    - Calculates Ergonomic Score and generates English violation details
-    """
     h_img, w_img, _ = img.shape
     img_out = img.copy()
 
@@ -331,36 +309,12 @@ async def assess_desk(
         annotated_bgr, violations, score = process_single_image(img_bgr, user_height)
         
         violations_text = "\n".join([f"* {v}" for v in violations]) if violations else "* Setup is optimal."
-        spatial_section = f"### Spatial Alerts\n{violations_text}\n"
+        spatial_section = f"### Spatial Alerts\n{violations_text}"
 
-        gemini_insights = ""
-        client = get_gemini_client()
+        final_report = f"### Ergonomic Score: **{score}/100**\n\n{spatial_section}"
         
-        if client:
-            try:
-                img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-                raw_img = Image.fromarray(img_rgb)
-                raw_img.thumbnail((640, 640))
-                
-                prompt = f"User Height: {user_height}cm. Score: {score}. Issues: {violations_text}. Provide 2 short ergonomic tips in English."
-                
-                response = client.models.generate_content(
-                    model='gemini-1.5-flash', 
-                    contents=[prompt, raw_img]
-                )
-                gemini_insights = response.text if response.text else ""
-            except Exception as err:
-                err_msg = str(err)
-                print(f"[DEBUG GEMINI ERROR]: {err_msg}")
-                if "API_KEY_INVALID" in err_msg or "400" in err_msg:
-                    gemini_insights = "\n> *AI Insight: Please check GEMINI_API_KEY setting in Render.*"
-                else:
-                    gemini_insights = f"\n> *AI Insight temporarily unavailable.*"
-        else:
-            gemini_insights = "\n> *AI Insight: Add GEMINI_API_KEY to Render Environment Variables to enable smart tips.*"
-
-        final_report = f"### Ergonomic Score: **{score}/100**\n\n{spatial_section}\n---\n{gemini_insights}"
-        tts_text = clean_text_for_tts(gemini_insights if ("Error" not in gemini_insights and "Add" not in gemini_insights) else "Desk assessment completed.")
+        tts_raw_text = f"Ergonomic score is {score} out of 100. " + " ".join(violations)
+        tts_text = clean_text_for_tts(tts_raw_text)
         audio_base64_str = get_voice_base64(tts_text, lang='en')
 
         return {
