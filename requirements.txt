@@ -5,3 +5,4 @@ numpy
 onnxruntime
 pydantic
 gTTS
+python-multipart
