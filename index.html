@@ -136,11 +136,10 @@
         <span class="status-badge-positive !bg-transparent !border !border-primary-container/30">v1.0 MVP</span>
     </div>
     <div class="hidden md:flex items-center gap-8">
-        <a class="font-label-caps text-label-caps uppercase tracking-widest text-primary font-bold border-b-2 border-primary pb-1" href="#" onclick="showStep(1); return false;">WORKFLOW</a>
+        <a class="font-label-caps text-label-caps uppercase tracking-widest text-primary font-bold border-b-2 border-primary pb-1" href="javascript:void(0)" onclick="showStep(1); return false;">WORKFLOW</a>
     </div>
     <div class="flex items-center gap-4">
         <span class="status-badge-positive hidden lg:inline-flex">AI VISION READY</span>
-        <!-- Đã xóa chữ PROFILE -->
     </div>
 </nav>
 
@@ -151,14 +150,14 @@
         <p class="font-label-caps text-label-caps text-on-surface-variant tracking-widest mt-1">VIGILANT GUARDIAN</p>
     </div>
     <nav class="flex flex-col gap-2">
-        <a id="nav_step1" class="px-4 py-3 text-primary font-bold bg-primary/10 rounded-xl font-label-caps text-label-caps translate-x-1 transition-transform block" href="#" onclick="showStep(1); return false;">SETUP WORKSPACE</a>
-        <a id="nav_step2" class="px-4 py-3 text-on-surface-variant/50 font-medium cursor-not-allowed transition-all rounded-xl font-label-caps text-label-caps block" href="#" onclick="trySwitchStep2(); return false;">MONITOR &amp; FOCUS 🔒</a>
+        <a id="nav_step1" class="px-4 py-3 text-primary font-bold bg-primary/10 rounded-xl font-label-caps text-label-caps translate-x-1 transition-transform block" href="javascript:void(0)" onclick="showStep(1); return false;">SETUP WORKSPACE</a>
+        <a id="nav_step2" class="px-4 py-3 text-on-surface-variant/50 font-medium cursor-not-allowed transition-all rounded-xl font-label-caps text-label-caps block" href="javascript:void(0)" onclick="trySwitchStep2(); return false;">MONITOR &amp; FOCUS 🔒</a>
     </nav>
 </aside>
 
 <main class="pt-24 pb-12 px-container-padding lg:pl-[calc(256px+32px)] max-w-[1920px] mx-auto min-h-screen space-y-12">
 
-    <!-- File Input Ẩn -->
+    <!-- File Input An -->
     <input type="file" id="desk_file_input" accept="image/*" class="hidden" />
 
     <!-- Step 1: Workspace Setup -->
@@ -211,7 +210,7 @@
             </div>
         </div>
 
-        <!-- Bảng Recheck & Adjust: Mặc định ẨN (hidden), chỉ hiện khi đã Analyze xong -->
+        <!-- Bang Recheck & Adjust -->
         <div id="recheck_banner" class="glass-card p-8 border-l-4 border-amber-500/50 bg-amber-500/5 hidden">
             <div class="flex flex-col md:flex-row items-center justify-between gap-6">
                 <div class="flex-1">
@@ -244,33 +243,47 @@
                     
                     <!-- Left: Real-time Posture Monitor -->
                     <div class="p-8 border-r border-white/5 flex flex-col gap-6">
+                        
+                        <!-- Webcam Container (Clean Feed) -->
                         <div class="relative w-full aspect-video bg-black rounded-2xl overflow-hidden border border-white/10" id="webcam_container">
                             <video id="webcam" autoplay muted playsinline class="absolute inset-0 w-full h-full object-cover opacity-60 transform -scale-x-100"></video>
                             <canvas id="output_canvas" class="absolute inset-0 w-full h-full transform -scale-x-100"></canvas>
                             <div class="absolute top-4 left-4 flex gap-2">
                                 <span class="bg-black/60 backdrop-blur-md text-white font-label-caps text-[10px] px-3 py-1.5 rounded-lg border border-white/20 uppercase">Camera Mirror On</span>
                             </div>
-                            <div class="absolute bottom-4 left-4 right-4 flex justify-between items-end">
-                                <div class="bg-black/60 backdrop-blur-md p-4 rounded-2xl border border-white/20 flex gap-8">
-                                    <div>
-                                        <p class="font-label-caps text-on-surface-variant mb-1 text-[10px] uppercase">Eye Distance</p>
-                                        <p class="font-title-md text-primary font-bold" id="metric_eye">0 px</p>
-                                    </div>
-                                    <div class="w-px h-8 bg-white/10"></div>
-                                    <div>
-                                        <p class="font-label-caps text-on-surface-variant mb-1 text-[10px] uppercase">Shoulder Align</p>
-                                        <p class="font-title-md text-primary font-bold" id="metric_shoulder">0 px</p>
-                                    </div>
-                                </div>
-                            </div>
                         </div>
 
-                        <div class="flex flex-col md:flex-row justify-between items-center bg-surface-container/50 p-5 rounded-2xl border border-white/5 gap-4">
-                            <div class="flex flex-col">
-                                <span class="font-label-caps text-[10px] text-on-surface-variant tracking-widest uppercase">Calibration Status</span>
-                                <span id="posture_status" class="font-bold text-primary tracking-wide">SYSTEM READY</span>
+                        <!-- Calibration & Live Metrics Container -->
+                        <div class="bg-surface-container/50 p-6 rounded-2xl border border-white/5 space-y-5">
+                            
+                            <!-- Header Status & Guidance -->
+                            <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 border-b border-white/5 pb-4">
+                                <div>
+                                    <span class="font-label-caps text-[10px] text-on-surface-variant tracking-widest uppercase block mb-1">Calibration Status</span>
+                                    <span id="posture_status" class="font-bold text-primary tracking-wide text-sm">SYSTEM READY</span>
+                                </div>
+                                <p class="text-xs text-primary/80 italic font-medium bg-primary/10 px-3 py-1.5 rounded-lg border border-primary/20">
+                                    💡 Sit upright &amp; pose your best posture before calibrating
+                                </p>
                             </div>
-                            <button id="btn_calibrate" class="btn-secondary py-2.5 px-6 text-xs w-full md:w-auto">Calibrate Standard Posture</button>
+
+                            <!-- Live Metrics Section -->
+                            <div class="grid grid-cols-2 gap-4 bg-surface-container-low/40 p-4 rounded-xl border border-white/5">
+                                <div class="flex flex-col">
+                                    <span class="font-label-caps text-on-surface-variant text-[10px] uppercase tracking-wider mb-1">Eye Distance</span>
+                                    <span class="font-title-md text-primary font-bold" id="metric_eye">0 px</span>
+                                </div>
+                                <div class="flex flex-col border-l border-white/10 pl-4">
+                                    <span class="font-label-caps text-on-surface-variant text-[10px] uppercase tracking-wider mb-1">Shoulder Align</span>
+                                    <span class="font-title-md text-primary font-bold" id="metric_shoulder">0 px</span>
+                                </div>
+                            </div>
+
+                            <!-- Calibration Action Button -->
+                            <button id="btn_calibrate" class="btn-secondary w-full py-3 text-xs tracking-widest uppercase font-bold flex items-center justify-center gap-2">
+                                <span class="material-symbols-outlined text-base">center_focus_strong</span>
+                                Calibrate Standard Posture
+                            </button>
                         </div>
 
                         <div class="mt-auto overflow-hidden rounded-2xl border border-white/10 aspect-[21/9] bg-surface-container-low/30">
@@ -333,9 +346,9 @@
             <span class="font-label-caps text-[10px] text-on-surface-variant uppercase tracking-[0.2em]">Privacy-First Stateless Biometric Engine</span>
         </div>
         <div class="flex gap-8 text-[10px] font-label-caps text-on-surface-variant uppercase tracking-widest">
-            <a class="hover:text-primary transition-colors" href="#">Documentation</a>
-            <a class="hover:text-primary transition-colors" href="#">Privacy Policy</a>
-            <a class="hover:text-primary transition-colors" href="#">Support</a>
+            <a class="hover:text-primary transition-colors" href="javascript:void(0)">Documentation</a>
+            <a class="hover:text-primary transition-colors" href="javascript:void(0)">Privacy Policy</a>
+            <a class="hover:text-primary transition-colors" href="javascript:void(0)">Support</a>
         </div>
     </div>
 </footer>
