@@ -242,17 +242,19 @@ if (deskFileInput) {
             }
 
             if (data.audio_base64 && data.audio_base64.length > 50) {
-                const audioSrc = data.audio_base64.startsWith('data:') 
-                ? data.audio_base64 
-                : `data:audio/mp3;base64,${data.audio_base64}`;
+    const audioSrc = data.audio_base64.startsWith('data:') 
+        ? data.audio_base64 
+        : `data:audio/mp3;base64,${data.audio_base64}`;
 
-                const audio = new Audio(audioSrc);
-                audio.play().catch(() => {
-                    playVoiceAlert(data.feedback);
-                });
-            } else if (data.feedback) {
-                playVoiceAlert(data.feedback);
-            }
+    const audio = new Audio(audioSrc);
+    audio.play().catch(() => {
+        const cleanText = removeMarkdownForSpeech(data.feedback);
+        playVoiceAlert(cleanText);
+    });
+} else if (data.feedback) {
+    const cleanText = removeMarkdownForSpeech(data.feedback);
+    playVoiceAlert(cleanText);
+}
 
             if (recheckBanner) recheckBanner.classList.remove('hidden');
             isStep1Completed = true;
@@ -722,7 +724,41 @@ if ('speechSynthesis' in window) {
     initVoices();
     window.speechSynthesis.onvoiceschanged = initVoices;
 }
+function removeMarkdownForSpeech(text) {
+    if (!text) return "";
+    return text
+        .replace(/#+/g, '')
+        .replace(/\*+/g, '')
+        .replace(/[\_\`\~\-\>]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
 
+function playVoiceAlert(text) {
+    const now = Date.now();
+    if (now - lastSpeechTime < 5000) return; 
+    lastSpeechTime = now;
+
+    if (!('speechSynthesis' in window)) return;
+
+    const cleanText = removeMarkdownForSpeech(text.replace(/[🚨]/g, ''));
+    if (!cleanText) return;
+
+    window.speechSynthesis.cancel(); 
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.95;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    if (cachedVoice) {
+        utterance.voice = cachedVoice;
+    }
+
+    window.speechSynthesis.resume();
+    window.speechSynthesis.speak(utterance);
+}
 function playVoiceAlert(text) {
     const now = Date.now();
     if (now - lastSpeechTime < 5000) return;
