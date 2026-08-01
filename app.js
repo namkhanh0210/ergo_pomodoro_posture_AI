@@ -247,8 +247,9 @@ if (deskFileInput) {
                 : `data:audio/mp3;base64,${data.audio_base64}`;
 
                 const audio = new Audio(audioSrc);
-                audio.play().catch(err => {});
-                audio.onended = () => { audio.src = ""; };
+                audio.play().catch(err => {
+                    console.warn("Autoplay blocked:", err);
+                });
             }
 
             if (recheckBanner) recheckBanner.classList.remove('hidden');
@@ -694,6 +695,13 @@ updateTimerDisplay();
         await fetch(`${BACKEND_URL}/ping`, { method: 'GET' });
     } catch (e) {}
 })();
+
+document.addEventListener('click', () => {
+    if ('speechSynthesis' in window) {
+        window.speechSynthesis.resume();
+    }
+}, { once: true });
+
 let lastSpeechTime = 0;
 let cachedVoice = null;
 
@@ -720,22 +728,21 @@ function playVoiceAlert(text) {
 
     if (!('speechSynthesis' in window)) return;
 
+    const cleanText = text.replace(/[🚨]/g, '').trim();
+    if (!cleanText) return;
+
     window.speechSynthesis.cancel();
+
+    const utterance = new SpeechSynthesisUtterance(cleanText);
+    utterance.lang = 'en-US';
+    utterance.rate = 0.95;
+    utterance.pitch = 1.0;
+    utterance.volume = 1.0;
+
+    if (cachedVoice) {
+        utterance.voice = cachedVoice;
+    }
+
     window.speechSynthesis.resume();
-
-    setTimeout(() => {
-        const cleanText = text.replace(/[🚨]/g, '').trim();
-        const utterance = new SpeechSynthesisUtterance(cleanText);
-        
-        utterance.lang = 'en-US';
-        utterance.rate = 0.9;
-        utterance.pitch = 1.0;
-        utterance.volume = 1.0;
-
-        if (cachedVoice) {
-            utterance.voice = cachedVoice;
-        }
-
-        window.speechSynthesis.speak(utterance);
-    }, 100);
+    window.speechSynthesis.speak(utterance);
 }
