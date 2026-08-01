@@ -368,88 +368,48 @@ def run_pose_onnx(img):
     kpts[:, 1] = (kpts[:, 1] / float(h_target)) * h_orig
     return kpts[:, :2], kpts[:, 2]
 
-@app.post("/api/analyze_frame")
-def analyze_frame(data: ImageData):
-    try:
-        try:
-            encoded_data = data.image_base64.split(',')[1] if ',' in data.image_base64 else data.image_base64
-            nparr = np.frombuffer(base64.b64decode(encoded_data), np.uint8)
-            img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
-            if img is None:
-                raise ValueError("Invalid Image Data")
-        except Exception:
-            return {"status": "Invalid Image", "is_bad_posture": False, "eye_dist": 0, "shoulder_y": 0, "is_success": False}
+@app.post("/api/assess_desk")
+async def assess_desk(
+    file: UploadFile = File(...),
+    user_height: float = Form(170.0),
+    fatigue_level: int = Form(30)
+):
+    try:
+        contents = await file.read()
+        nparr = np.frombuffer(contents, np.uint8)
+        img_bgr = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
 
-        kpts, confs = run_pose_onnx(img)
-        
-        status = "No person detected"
-        current_eye_dist = 0.0
-        current_shoulder_y = 0.0
-        color = (0, 0, 255)
-        is_success = False
-        is_bad_posture = False
+        if img_bgr is None:
+            return {"feedback": "Invalid image format.", "processed_image": "", "audio_base64": "", "speech_text": "Invalid image format"}
 
-        if kpts is not None and len(kpts) >= 7:
-            nose = kpts[0]
-            left_eye, right_eye = kpts[1], kpts[2]
-            left_shoulder, right_shoulder = kpts[5], kpts[6]
-            CONF_THRESHOLD = 0.03
+        h, w = img_bgr.shape[:2]
+        if max(h, w) > 640:
+            scale = 640.0 / float(max(h, w))
+            img_bgr = cv2.resize(img_bgr, (int(w * scale), int(h * scale)))
 
-            if confs[1] > CONF_THRESHOLD and confs[2] > CONF_THRESHOLD:
-                current_eye_dist = calculate_distance(left_eye, right_eye)
-            elif confs[0] > CONF_THRESHOLD and confs[1] > CONF_THRESHOLD:
-                current_eye_dist = calculate_distance(nose, left_eye) * 2
-            elif confs[0] > CONF_THRESHOLD and confs[2] > CONF_THRESHOLD:
-                current_eye_dist = calculate_distance(nose, right_eye) * 2
+        annotated_bgr, violations, score = process_single_image(img_bgr, user_height)
+        
+        violations_text = "\n".join([f"* {v}" for v in violations]) if violations else "* Setup is optimal."
+        spatial_section = f"### Spatial Alerts\n{violations_text}"
 
-            if confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD:
-                current_shoulder_y = float((left_shoulder[1] + right_shoulder[1]) / 2)
-            elif confs[5] > CONF_THRESHOLD:
-                current_shoulder_y = float(left_shoulder[1])
-            elif confs[6] > CONF_THRESHOLD:
-                current_shoulder_y = float(right_shoulder[1])
-            elif confs[0] > CONF_THRESHOLD:
-                current_shoulder_y = float(nose[1] + 100)
+        final_report = f"### Ergonomic Score: **{score}/100**\n\n{spatial_section}"
+        
+        tts_raw_text = f"Ergonomic score is {score} out of 100. " + " ".join(violations)
+        tts_text = clean_text_for_tts(tts_raw_text)
+        audio_base64_str = get_voice_base64(tts_text, lang='en')
 
-            if current_eye_dist > 0:
-                shoulder_tilt = abs(left_shoulder[1] - right_shoulder[1]) if (confs[5] > CONF_THRESHOLD and confs[6] > CONF_THRESHOLD) else 0
+        return {
+            "feedback": final_report,
+            "processed_image": cv2_to_base64(annotated_bgr),
+            "audio_base64": f"data:audio/mp3;base64,{audio_base64_str}" if audio_base64_str else "",
+            "speech_text": tts_text
+        }
+    except Exception as e:
+        return {"feedback": f"Error processing image: {str(e)}", "processed_image": "", "audio_base64": "", "speech_text": "Error processing image"}
+    finally:
+        gc.collect()
+can sau cai nay khong
 
-                if data.is_calibration:
-                    if shoulder_tilt > 25:
-                        status = "Error: SHOULDERS TILTED! Please sit straight."
-                    else:
-                        status = "Success: Standard posture saved!"
-                        color = (0, 255, 0)
-                        is_success = True
-                else:
-                    if data.baseline_eye_dist > 0 and current_eye_dist > (data.baseline_eye_dist * 1.25):
-                        status = "Warning: Too close to screen!"
-                        is_bad_posture = True
-                    elif data.baseline_shoulder_y > 0 and current_shoulder_y > (data.baseline_shoulder_y + 20):
-                        status = "Warning: Bad posture (Slouching)!"
-                        is_bad_posture = True
-                    elif shoulder_tilt > 20:
-                        status = "Warning: Bad posture (Leaning)!"
-                        is_bad_posture = True
-                    else:
-                        status = "Good posture"
-                        color = (0, 255, 0)
-
-            cv2.putText(img, status, (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
-
-        _, buffer = cv2.imencode('.jpg', img, [cv2.IMWRITE_JPEG_QUALITY, 50])
-        processed_base64 = base64.b64encode(buffer).decode('utf-8')
-
-        return {
-            "image": f"data:image/jpeg;base64,{processed_base64}",
-            "status": status,
-            "is_bad_posture": is_bad_posture,
-            "eye_dist": current_eye_dist,
-            "shoulder_y": current_shoulder_y,
-            "is_success": is_success
-        }
-    finally:
-        gc.collect()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 7860))
