@@ -94,15 +94,20 @@ def get_voice_base64(text: str, lang='en') -> str:
 
 def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
     h_orig, w_orig = img.shape[:2]
-    INPUT_SIZE = 640
 
-    img_resized = cv2.resize(img, (INPUT_SIZE, INPUT_SIZE))
+    session = get_desk_session()
+    input_meta = session.get_inputs()[0]
+    input_name = input_meta.name
+
+    model_shape = input_meta.shape
+    h_target = model_shape[2] if isinstance(model_shape[2], int) else 640
+    w_target = model_shape[3] if isinstance(model_shape[3], int) else 640
+
+    img_resized = cv2.resize(img, (w_target, h_target))
     img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
     input_tensor = img_rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
     input_tensor = np.expand_dims(input_tensor, axis=0)
 
-    session = get_desk_session()
-    input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: input_tensor})[0]
 
     out = outputs[0]
@@ -138,10 +143,10 @@ def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
                 continue
             
             cx, cy, w, h = boxes[i]
-            cx_real = (cx / float(INPUT_SIZE)) * w_orig
-            cy_real = (cy / float(INPUT_SIZE)) * h_orig
-            w_px = (w / float(INPUT_SIZE)) * w_orig
-            h_px = (h / float(INPUT_SIZE)) * h_orig
+            cx_real = (cx / float(w_target)) * w_orig
+            cy_real = (cy / float(h_target)) * h_orig
+            w_px = (w / float(w_target)) * w_orig
+            h_px = (h / float(h_target)) * h_orig
             
             if label not in object_coords:
                 object_coords[label] = []
@@ -328,13 +333,20 @@ async def assess_desk(
 
 def run_pose_onnx(img):
     h_orig, w_orig = img.shape[:2]
-    img_resized = cv2.resize(img, (640, 640))
+    
+    session = get_pose_session()
+    input_meta = session.get_inputs()[0]
+    input_name = input_meta.name
+
+    model_shape = input_meta.shape
+    h_target = model_shape[2] if isinstance(model_shape[2], int) else 640
+    w_target = model_shape[3] if isinstance(model_shape[3], int) else 640
+
+    img_resized = cv2.resize(img, (w_target, h_target))
     img_rgb = cv2.cvtColor(img_resized, cv2.COLOR_BGR2RGB)
     input_tensor = img_rgb.transpose(2, 0, 1).astype(np.float32) / 255.0
     input_tensor = np.expand_dims(input_tensor, axis=0)
 
-    session = get_pose_session()
-    input_name = session.get_inputs()[0].name
     outputs = session.run(None, {input_name: input_tensor})[0]
 
     out = outputs[0]
@@ -350,8 +362,8 @@ def run_pose_onnx(img):
     best_pred = out[best_idx]
     kpts = best_pred[5:].reshape(17, 3)
 
-    kpts[:, 0] = (kpts[:, 0] / 640.0) * w_orig
-    kpts[:, 1] = (kpts[:, 1] / 640.0) * h_orig
+    kpts[:, 0] = (kpts[:, 0] / float(w_target)) * w_orig
+    kpts[:, 1] = (kpts[:, 1] / float(h_target)) * h_orig
     return kpts[:, :2], kpts[:, 2]
 
 @app.post("/api/analyze_frame")
