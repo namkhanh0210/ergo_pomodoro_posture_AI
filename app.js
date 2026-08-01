@@ -242,19 +242,19 @@ if (deskFileInput) {
             }
 
             if (data.audio_base64 && data.audio_base64.length > 50) {
-    const audioSrc = data.audio_base64.startsWith('data:') 
-        ? data.audio_base64 
-        : `data:audio/mp3;base64,${data.audio_base64}`;
+                const audioSrc = data.audio_base64.startsWith('data:') 
+                    ? data.audio_base64 
+                    : `data:audio/mp3;base64,${data.audio_base64}`;
 
-    const audio = new Audio(audioSrc);
-    audio.play().catch(() => {
-        const cleanText = removeMarkdownForSpeech(data.feedback);
-        playVoiceAlert(cleanText);
-    });
-} else if (data.feedback) {
-    const cleanText = removeMarkdownForSpeech(data.feedback);
-    playVoiceAlert(cleanText);
-}
+                const audio = new Audio(audioSrc);
+                audio.play().catch(() => {
+                    const cleanText = removeMarkdownForSpeech(data.feedback);
+                    playVoiceAlert(cleanText);
+                });
+            } else if (data.feedback) {
+                const cleanText = removeMarkdownForSpeech(data.feedback);
+                playVoiceAlert(cleanText);
+            }
 
             if (recheckBanner) recheckBanner.classList.remove('hidden');
             isStep1Completed = true;
@@ -724,6 +724,7 @@ if ('speechSynthesis' in window) {
     initVoices();
     window.speechSynthesis.onvoiceschanged = initVoices;
 }
+
 function removeMarkdownForSpeech(text) {
     if (!text) return "";
     return text
