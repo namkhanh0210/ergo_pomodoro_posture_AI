@@ -47,12 +47,13 @@ def get_pose_session():
     return pose_session
 
 AUDIO_CACHE = {}
-MAX_CACHE_SIZE = 3
+MAX_CACHE_SIZE = 5
 SCREEN_REAL_WIDTH_CM = 35.0
 
 COCO_CLASSES = {
     0: 'person', 39: 'bottle', 41: 'cup', 62: 'tvmonitor',
-    63: 'laptop', 64: 'mouse', 66: 'keyboard', 73: 'book'
+    63: 'laptop', 64: 'mouse', 66: 'keyboard', 67: 'cell phone',
+    73: 'book', 76: 'scissors'
 }
 
 class ImageData(BaseModel):
@@ -80,17 +81,20 @@ def get_voice_base64(text: str, lang='en') -> str:
         AUDIO_CACHE.clear()
         
     cache_key = f"{lang}_{text[:100]}"
-    if cache_key not in AUDIO_CACHE:
-        try:
-            short_text = text[:150]
-            tts = gTTS(text=short_text, lang=lang, slow=False)
-            fp = io.BytesIO()
-            tts.write_to_fp(fp)
-            fp.seek(0)
-            AUDIO_CACHE[cache_key] = base64.b64encode(fp.read()).decode('utf-8')
-        except Exception:
-            return ""
-    return AUDIO_CACHE[cache_key]
+    if cache_key in AUDIO_CACHE:
+        return AUDIO_CACHE[cache_key]
+
+    try:
+        short_text = text[:150]
+        tts = gTTS(text=short_text, lang=lang, slow=False)
+        fp = io.BytesIO()
+        tts.write_to_fp(fp)
+        fp.seek(0)
+        audio_b64 = base64.b64encode(fp.read()).decode('utf-8')
+        AUDIO_CACHE[cache_key] = audio_b64
+        return audio_b64
+    except Exception:
+        return ""
 
 def run_desk_onnx(img, conf_thresh=0.25, iou_thresh=0.45):
     h_orig, w_orig = img.shape[:2]
@@ -189,10 +193,8 @@ def process_desk_image(img, user_height, object_coords):
     cv2.circle(img_out, (int(x_origin), int(y_origin)), int(R_MAX_PX), (0, 0, 255), 2)
     cv2.addWeighted(overlay, 0.08, img_out, 0.92, 0, img_out)
 
-    hazardous_keys = ['cup', 'bottle']
-    essential_keys = ['mouse', 'keyboard']
-    document_keys = ['book']
-    
+    ALLOWED_IN_ZONE = ['mouse', 'keyboard', 'book', 'laptop', 'tvmonitor']
+
     drawn_text_rects = []
     violations = []
     deductions = 0
@@ -221,15 +223,7 @@ def process_desk_image(img, user_height, object_coords):
             color_text = (255, 255, 255)
             x_target, y_target = x_obj, y_obj
 
-            if label_name in hazardous_keys and distance_px < R_MAX_PX:
-                x_target = x_obj + (ux * offset_dist)
-                y_target = y_obj + (uy * offset_dist)
-                text = f"MOVE OUT ({distance_cm:.1f}cm)"
-                color_text = (0, 0, 255)
-                violations.append(f"**{label_name.title()}**: Placed too close to electronics ({distance_cm:.1f}cm)")
-                deductions += 25
-
-            elif label_name in essential_keys and distance_px > R_NORMAL_PX:
+            if label_name in ['mouse', 'keyboard'] and distance_px > R_NORMAL_PX:
                 x_target = x_obj - (ux * offset_dist)
                 y_target = y_obj - (uy * offset_dist)
                 text = f"PULL IN ({distance_cm:.1f}cm)"
@@ -237,7 +231,15 @@ def process_desk_image(img, user_height, object_coords):
                 violations.append(f"**{label_name.title()}**: Located outside natural reach zone ({distance_cm:.1f}cm)")
                 deductions += 15
 
-            elif label_name in document_keys:
+            elif label_name not in ALLOWED_IN_ZONE and distance_px < R_MAX_PX:
+                x_target = x_obj + (ux * offset_dist)
+                y_target = y_obj + (uy * offset_dist)
+                text = f"MOVE OUT ({distance_cm:.1f}cm)"
+                color_text = (0, 0, 255)
+                violations.append(f"**{label_name.title()}**: Unauthorized item inside reach zone ({distance_cm:.1f}cm)")
+                deductions += 25
+
+            elif label_name == 'book':
                 is_on_right_side = x_obj > x_origin
                 if is_on_right_side and distance_px < R_MAX_PX:
                     x_target = x_obj + (ux * offset_dist)
@@ -259,7 +261,7 @@ def process_desk_image(img, user_height, object_coords):
                 t_y = int(y_target) + int(offset_y)
 
                 t_x = max(5, min(t_x, w_img - text_width - 5))
-                t_y = max(text_height + 5, min(t_y, h_img - 5))
+                t_y = max(text_height + 10, min(t_y, h_img - 20))
 
                 r_x1, r_y1 = t_x - 4, t_y - text_height - 4
                 r_x2, r_y2 = t_x + text_width + 4, t_y + baseline + 2
