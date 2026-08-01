@@ -194,9 +194,12 @@ if (deskFileInput) {
             };
             reader.readAsDataURL(compressedFile);
 
+            const heightInput = document.querySelector('input[type="number"]');
+            const userHeight = (heightInput && heightInput.value) ? heightInput.value : "170.0";
+
             const formData = new FormData();
             formData.append("file", compressedFile);
-            formData.append("user_height", "170.0");
+            formData.append("user_height", userHeight);
             formData.append("fatigue_level", "30");
 
             const response = await fetch(`${BACKEND_URL}/api/assess_desk`, {
@@ -351,25 +354,33 @@ function startPostureAI() {
     if (isMonitoring) return;
     isMonitoring = true;
 
-    async function monitorLoop() {
+    let lastFrameTime = 0;
+    const FPS_LIMIT = 12;
+    const frameInterval = 1000 / FPS_LIMIT;
+
+    async function monitorLoop(timestamp) {
         if (!isMonitoring) return;
 
-        if (sessionONNX && webcam && webcam.readyState >= 2) {
-            const inputTensor = preprocessWebcamToTensor();
-            if (inputTensor) {
-                try {
-                    const inputName = sessionONNX.inputNames[0];
-                    const feeds = {};
-                    feeds[inputName] = inputTensor;
+        if (timestamp - lastFrameTime >= frameInterval) {
+            lastFrameTime = timestamp;
 
-                    const results = await sessionONNX.run(feeds);
-                    const outputName = sessionONNX.outputNames[0];
-                    const outputTensor = results[outputName];
+            if (sessionONNX && webcam && webcam.readyState >= 2) {
+                const inputTensor = preprocessWebcamToTensor();
+                if (inputTensor) {
+                    try {
+                        const inputName = sessionONNX.inputNames[0];
+                        const feeds = {};
+                        feeds[inputName] = inputTensor;
 
-                    if (outputTensor && outputTensor.data) {
-                        processYoloOutput(outputTensor);
-                    }
-                } catch (e) {}
+                        const results = await sessionONNX.run(feeds);
+                        const outputName = sessionONNX.outputNames[0];
+                        const outputTensor = results[outputName];
+
+                        if (outputTensor && outputTensor.data) {
+                            processYoloOutput(outputTensor);
+                        }
+                    } catch (e) {}
+                }
             }
         }
 
@@ -378,7 +389,7 @@ function startPostureAI() {
         }
     }
 
-    monitorLoop();
+    requestAnimationFrame(monitorLoop);
 }
 
 function stopPostureAI() {
