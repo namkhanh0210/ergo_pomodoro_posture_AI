@@ -729,7 +729,7 @@ function removeMarkdownForSpeech(text) {
     return text
         .replace(/#+/g, '')
         .replace(/\*+/g, '')
-        .replace(/[\_\`\~\-\>]/g, ' ')
+        .replace(/[\_\`\~\-\>🚨]/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
 }
@@ -741,35 +741,10 @@ function playVoiceAlert(text) {
 
     if (!('speechSynthesis' in window)) return;
 
-    const cleanText = removeMarkdownForSpeech(text.replace(/[🚨]/g, ''));
+    const cleanText = removeMarkdownForSpeech(text);
     if (!cleanText) return;
 
     window.speechSynthesis.cancel(); 
-
-    const utterance = new SpeechSynthesisUtterance(cleanText);
-    utterance.lang = 'en-US';
-    utterance.rate = 0.95;
-    utterance.pitch = 1.0;
-    utterance.volume = 1.0;
-
-    if (cachedVoice) {
-        utterance.voice = cachedVoice;
-    }
-
-    window.speechSynthesis.resume();
-    window.speechSynthesis.speak(utterance);
-}
-function playVoiceAlert(text) {
-    const now = Date.now();
-    if (now - lastSpeechTime < 5000) return;
-    lastSpeechTime = now;
-
-    if (!('speechSynthesis' in window)) return;
-
-    const cleanText = text.replace(/[🚨]/g, '').trim();
-    if (!cleanText) return;
-
-    window.speechSynthesis.cancel();
 
     const utterance = new SpeechSynthesisUtterance(cleanText);
     utterance.lang = 'en-US';
