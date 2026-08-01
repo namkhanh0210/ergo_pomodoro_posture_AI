@@ -241,15 +241,17 @@ if (deskFileInput) {
                 deskResultImg.src = data.processed_image;
             }
 
-            if (data.audio_base64) {
+            if (data.audio_base64 && data.audio_base64.length > 50) {
                 const audioSrc = data.audio_base64.startsWith('data:') 
                 ? data.audio_base64 
                 : `data:audio/mp3;base64,${data.audio_base64}`;
 
                 const audio = new Audio(audioSrc);
-                audio.play().catch(err => {
-                    console.warn("Autoplay blocked:", err);
+                audio.play().catch(() => {
+                    playVoiceAlert(data.feedback);
                 });
+            } else if (data.feedback) {
+                playVoiceAlert(data.feedback);
             }
 
             if (recheckBanner) recheckBanner.classList.remove('hidden');
