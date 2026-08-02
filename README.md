@@ -30,8 +30,8 @@ I know how sensitive webcam access can be. Your privacy is fully protected:
 
 ## Tech Stack
 
-- **Frontend:** [Ví dụ: React / HTML / CSS / JavaScript]
-- **AI / Computer Vision:** [Ví dụ: TensorFlow.js / MediaPipe / WebRTC]
+- **Frontend:** HTML / CSS / JavaScript
+- **AI / Computer Vision:** Yolo
 
 ---
 
