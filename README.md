@@ -35,7 +35,4 @@ I know how sensitive webcam access can be. Your privacy is fully protected:
 
 ---
 
-## Author
-
-Built with ❤️ by a High School Developer. 
 Feel free to open an issue or leave feedback!
