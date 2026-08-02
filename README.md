@@ -1,7 +1,7 @@
 # Ergo_pomodoro_posture_AI
 An AI-powered workspace safety and posture monitoring web application built for productivity and ergonomics.
 
-Try the Web App (No setup required): [Dán Link Web Vào Đây]
+Try the Web App (No setup required): [https://ergoandpostureai.vercel.app/]
 
 ---
 
